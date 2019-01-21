@@ -1,0 +1,58 @@
+If you're going to use these, it's best to follow them before not after you install PyTorch.  These simple instructions will tell you how to set up a working environment for PyTorch on Linux (or potentially WSL, when Windows supports Cuda via WSL).  These instructions won't cover what, particularly for the less-experienced user, can be the hardest part, namely installing CUDA and CUDNN, but there are other tutorials and forums for that.  Rather, we'll assume you have these both installed.  To test that they have been installed correctly, run this command
+
+$ nvidia-smi
+
+and you should get console output which shows your CUDA driver and which lists your GPUs.
+
+The key thing now is to create a virtual environment.  This is critical because it ensures that the Python packages and the Python version you use within the environment are exactly what you expect them to be, and that they are not overwritten by anything else you do with Python on your system.  Conda is one tool for this, however a tool which is far more general (and has no disadvantages that I'm aware of) is virtualenv.  Install like this:
+
+$ pip install virtualenv
+
+Managing environments is very easy with virtualenvwrapper, so it's good to install it as well:
+
+# pip install virtualenvwrapper
+
+Now, you need to modify some things in your ~/.bashrc file.  If you're not familiar with this, it's basically a setup file that is run every time before you open up a command line shell.  If you haven't seen it before that's because files starting with '.' are hidden from default directory listings.  Scroll to the bottom and add these lines:
+
+export WORKON_HOME=$HOME/.virtualenvs
+source ~/.local/bin/virtualenvwrapper.sh
+export PATH=$PATH:~/.local/bin
+
+You may need to do some experimenting here; specifically, the last line two lines must provide the correct paths to the virtualenvwrapper.sh shell script and virtualenv executable, respectively.  These can differ depending on how the installation happens.  Run
+
+$ source ~/.bashrc
+
+and then create the environment for this project, let's call it 'packt':
+
+$ mkvirtualenv packt --system-site-packages --python=python3
+
+This sets up the packt virtual environment with whatever system version of python3 that you've got.  If you want to use a different (perhaps more recent) version, this creation command should change accordingly:
+
+$ mkvirtualenv packt --system-site-packages --python=/path/to/python3/executable
+
+Note that once a virtual environment has been created with a particular version, there is really no way to change it.  If you need to, just wipe out the environment like this (be careful!!):
+
+$ rm -rf ~/.virtualenvs/packt
+
+and start over.
+
+You can switch into your new environment with this command:
+
+$ workon packt
+
+This should put the environment name in parentheses at the beginning of every subsequent command within that shell session.  You can leave whatever virtual environment you're in with this command:
+
+(packt) $ deactivate.
+
+That's it for virtual environments.  *Now*, activate your packt environment and go to the PyTorch download page to get it.  Be sure to choose the 'pip' and not 'conda' installer option, and follow the instructions.  This will now let you keep your PyTorch install and everything it needs sequestered on your system.
+
+Another valuable piece of setting up you can do is to get a command-line interactive shell.  For simple experimentation, there is really no easier path.  Moreover, if you use a terminal manager like tmux or screen, it is very easy to hop from the python shell to the command line and back.  To get the interpreter, write:
+
+(packt) $ pip install ipython
+
+and to launch it, just type
+
+(packt) python -m IPython
+
+and it will open in the terminal.
+

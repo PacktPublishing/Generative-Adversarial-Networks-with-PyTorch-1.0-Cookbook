@@ -23,7 +23,7 @@ class Generator(nn.Module):
     def forward(self, x):
         x = F.relu( self._fc1(x) )
         x = F.relu( self._fc2(x) )
-        x = F.sigmoid( self._fc3(x) )
+        x = torch.sigmoid( self._fc3(x) )
         x = x.view(-1, 1, 28, 28)
         return x
 
@@ -38,7 +38,7 @@ class Discriminator(nn.Module):
         x = x.view(-1, 784)
         x = F.relu( self._fc1(x) )
         x = F.relu( self._fc2(x) )
-        x = F.sigmoid( self._fc3(x) )
+        x = torch.sigmoid( self._fc3(x) )
         return x
 
 
@@ -57,6 +57,17 @@ def get_loaders(cfg):
             num_workers=cfg["num_workers"])
     return train_loader,test_loader
 
+def sample(m_gen, epoch, cfg):
+    cudev = cfg["cuda"]
+    if cudev >= 0:
+        z = torch.cuda.FloatTensor(cfg["batch_size"],
+                cfg["z_dim"]).uniform_(0.0,1.0)
+    else:
+        z = torch.FloatTensor(cfg["batch_size"], cfg["z_dim"]).uniform_(0.0,1.0)
+    xhat = m_gen(z)
+    tv.utils.save_image(xhat, "samples/%03d.png" % epoch)
+
+
 def train(m_gen, m_disc, train_loader, test_loader, optimizer, cfg):
     cudev = cfg["cuda"]
     batch_size = cfg["batch_size"]
@@ -66,12 +77,13 @@ def train(m_gen, m_disc, train_loader, test_loader, optimizer, cfg):
     for epoch in range(100):
         for x,_ in train_loader:
             if cudev >= 0:
-                z = torch.cuda.FloatTensor(cfg["z_dim"]).uniform_(0.0,1.0)
+                z = torch.cuda.FloatTensor(batch_size,
+                        cfg["z_dim"]).uniform_(0.0,1.0)
                 x = x.cuda(cudev)
                 labels = torch.cat((torch.ones(batch_size), 
                     torch.zeros(batch_size))).cuda(cudev)
             else:
-                z = torch.FloatTensor(cfg["z_dim"]).uniform_(0.0,1.0)
+                z = torch.FloatTensor(batch_size,cfg["z_dim"]).uniform_(0.0,1.0)
                 labels = torch.cat((torch.ones(batch_size), 
                     torch.zeros(batch_size)))
             
@@ -81,10 +93,11 @@ def train(m_gen, m_disc, train_loader, test_loader, optimizer, cfg):
             preds = m_disc(x)
             d_loss = d_criterion(preds, labels)
             g_loss = g_criterion(preds[batch_size:], labels[batch_size:])
-            print(d_loss.item(), g_loss.item())
             d_loss.backward(retain_graph=True)
             g_loss.backward()
             optimizer.step()
+        print(d_loss.item(), g_loss.item())
+        sample(m_gen, epoch, cfg)
 
 
 def main(args):

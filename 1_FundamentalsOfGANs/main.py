@@ -65,17 +65,18 @@ def sample(m_gen, epoch, cfg):
     else:
         z = torch.FloatTensor(cfg["batch_size"], cfg["z_dim"]).uniform_(0.0,1.0)
     xhat = m_gen(z)
+    xhat = F.interpolate(xhat, scale_factor=(5.0, 5.0))
     tv.utils.save_image(xhat, "samples/%03d.png" % epoch)
 
 
 def train(m_gen, m_disc, train_loader, test_loader, optimizer, cfg):
     cudev = cfg["cuda"]
     batch_size = cfg["batch_size"]
-    d_criterion = lambda yhat,y : torch.mean( y*torch.log(yhat) \
+    d_criterion = lambda yhat,y : -torch.mean( y*torch.log(yhat) \
             + (1-y)*torch.log(1-yhat) )
-    g_criterion = lambda yhat,y : torch.mean( torch.log(yhat) )
+    g_criterion = lambda yhat : -torch.mean( torch.log(yhat) )
     for epoch in range(100):
-        for x,_ in train_loader:
+        for i,(x,_) in enumerate(train_loader):
             if cudev >= 0:
                 z = torch.cuda.FloatTensor(batch_size,
                         cfg["z_dim"]).uniform_(0.0,1.0)
@@ -91,12 +92,25 @@ def train(m_gen, m_disc, train_loader, test_loader, optimizer, cfg):
             xhat = m_gen(z)
             x = torch.cat((x, xhat))
             preds = m_disc(x)
+            binary_preds = preds > 0.5
+            d_real_acc = 100.0 * torch.mean((binary_preds[:batch_size] \
+                    == labels[:batch_size].byte()).float())
+            d_fake_acc = 100.0 * torch.mean((binary_preds[batch_size:] \
+                    == labels[batch_size:].byte()).float())
+            d_real_preds = torch.mean(binary_preds[:batch_size].float())
+            d_fake_preds = torch.mean(binary_preds[batch_size:].float())
             d_loss = d_criterion(preds, labels)
-            g_loss = g_criterion(preds[batch_size:], labels[batch_size:])
             d_loss.backward(retain_graph=True)
+
+            optimizer.zero_grad()
+            g_loss = g_criterion(preds[batch_size:])
             g_loss.backward()
             optimizer.step()
-        print(d_loss.item(), g_loss.item())
+            if i % 10 == 9:
+                print("LossG: %.4f, lossD: %.4f, Real accD: %.1f, " \
+                        "Fake accD: %.1f, Real preds: %.4f, Fake preds: %.4f" \
+                        %(d_loss.item(), g_loss.item(), d_real_acc, d_fake_acc,
+                            d_real_preds, d_fake_preds))
         sample(m_gen, epoch, cfg)
 
 

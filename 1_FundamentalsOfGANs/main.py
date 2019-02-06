@@ -16,11 +16,7 @@ from torch.utils.data import DataLoader
 class Generator(nn.Module):
     def __init__(self, z_dim=10):
         super().__init__()
-#        self._fc1 = nn.Linear(z_dim, 20)
-#        self._fc2 = nn.Linear(20, 150)
-#        self._fc3 = nn.Linear(150, 784)
         self._fc1 = nn.Linear(z_dim, 150, bias=False)
-#        self._bn1 = nn.BatchNorm1d(150)
         self._fc2 = nn.Linear(150, 784, bias=False)
 
         nn.init.normal_(self._fc1.weight, mean=0, std=0.1)
@@ -28,7 +24,6 @@ class Generator(nn.Module):
 
     def forward(self, x):
         x = F.relu( self._fc1(x) )
-#        x = self._bn1(x)
         x = torch.sigmoid( self._fc2(x) )
         x = x.view(-1, 1, 28, 28)
         return x
@@ -37,11 +32,7 @@ class Discriminator(nn.Module):
     def __init__(self):
         super().__init__()
         self._fc1 = nn.Linear(784, 150, bias=False)
-#        self._bn1 = nn.BatchNorm1d(150)
         self._fc2 = nn.Linear(150, 1, bias=False)
-#        self._fc1 = nn.Linear(784, 150)
-#        self._fc2 = nn.Linear(150, 20)
-#        self._fc3 = nn.Linear(20, 1)
 
         nn.init.normal_(self._fc1.weight, mean=0, std=0.1)
         nn.init.normal_(self._fc2.weight, mean=0, std=0.1)
@@ -49,7 +40,6 @@ class Discriminator(nn.Module):
     def forward(self, x):
         x = x.view(-1, 784)
         x = F.relu( self._fc1(x) )
-#        x = self._bn1(x)
         x = torch.sigmoid( self._fc2(x) )
         return x
 
@@ -113,29 +103,9 @@ def train(m_gen, m_disc, train_loader, test_loader, optimizers, cfg):
             print("GLoss: %.4f, DLossReal: %.4f, DLossFake: %.4f, " \
                     % (g_loss.item(), d_real_loss.item(), d_fake_loss.item()))
             
-#            preds = m_disc(x)
-#            binary_preds = preds > 0.5
-#            d_real_acc = 100.0 * torch.mean((binary_preds[:batch_size] \
-#                    == labels[:batch_size].byte()).float())
-#            d_fake_acc = 100.0 * torch.mean((binary_preds[batch_size:] \
-#                    == labels[batch_size:].byte()).float())
-#            d_real_preds = torch.mean(binary_preds[:batch_size].float())
-#            d_fake_preds = torch.mean(binary_preds[batch_size:].float())
-#            d_loss = d_criterion(preds, labels)
-#            d_loss.backward(retain_graph=True)
-#
-#            if i % 10 == 9:
-#                print("LossG: %.4f, lossD: %.4f, Real accD: %.1f, " \
-#                        "Fake accD: %.1f, Real preds: %.4f, Fake preds: %.4f" \
-#                        %(d_loss.item(), g_loss.item(), d_real_acc, d_fake_acc,
-#                            d_real_preds, d_fake_preds))
         save_sample_images(m_gen, epoch, cfg)
 
 def z_sampler(batch_size, z_dim, cudev):
-#    if cudev >= 0:
-#        z = torch.cuda.FloatTensor(batch_size, z_dim).uniform_(0.0,1.0)
-#    else:
-#        z = torch.FloatTensor(batch_size, z_dim).uniform_(0.0,1.0)
     if cudev >= 0:
         z = torch.cuda.FloatTensor(batch_size, z_dim).normal_(0.0,1.0)
     else:
@@ -164,7 +134,7 @@ if __name__ == "__main__":
     parser.add_argument("--num-workers", type=int, default=4,
         help="Number of worker threads to use loading data")
     parser.add_argument("--batch-size", type=int, default=32)
-    parser.add_argument("--z-dim", type=int, default=10,
+    parser.add_argument("--z-dim", type=int, default=100,
         help="Number of latent space units")
     parser.add_argument("--lr-d", type=float, default=0.0001,
             help="Model learning rate")

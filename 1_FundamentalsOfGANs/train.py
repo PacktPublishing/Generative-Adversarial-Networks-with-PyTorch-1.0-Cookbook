@@ -12,37 +12,8 @@ import torch.nn.functional as F
 import torchvision as tv
 from torch.utils.data import DataLoader
 
-
-class Generator(nn.Module):
-    def __init__(self, z_dim=10):
-        super().__init__()
-        self._fc1 = nn.Linear(z_dim, 150, bias=False)
-        self._fc2 = nn.Linear(150, 784, bias=False)
-
-        nn.init.normal_(self._fc1.weight, mean=0, std=0.1)
-        nn.init.normal_(self._fc2.weight, mean=0, std=0.1)
-
-    def forward(self, x):
-        x = F.relu( self._fc1(x) )
-        x = torch.sigmoid( self._fc2(x) )
-        x = x.view(-1, 1, 28, 28)
-        return x
-
-class Discriminator(nn.Module):
-    def __init__(self):
-        super().__init__()
-        self._fc1 = nn.Linear(784, 150, bias=False)
-        self._fc2 = nn.Linear(150, 1, bias=False)
-
-        nn.init.normal_(self._fc1.weight, mean=0, std=0.1)
-        nn.init.normal_(self._fc2.weight, mean=0, std=0.1)
-
-    def forward(self, x):
-        x = x.view(-1, 784)
-        x = F.relu( self._fc1(x) )
-        x = torch.sigmoid( self._fc2(x) )
-        return x
-
+from generator import Generator, z_sampler
+from discriminator import Discriminator
 
 def get_loaders(cfg):
     train_loader = DataLoader(
@@ -51,13 +22,7 @@ def get_loaders(cfg):
             batch_size=cfg["batch_size"],
             shuffle=True,
             num_workers=cfg["num_workers"])
-    test_loader = DataLoader(
-            tv.datasets.MNIST("data", train=False,
-                transform=tv.transforms.ToTensor()),
-            batch_size=cfg["batch_size"],
-            shuffle=True, 
-            num_workers=cfg["num_workers"])
-    return train_loader,test_loader
+    return train_loader
 
 def save_sample_images(m_gen, epoch, cfg):
     z = z_sampler(cfg["batch_size"], cfg["z_dim"], cfg["cuda"])
@@ -65,7 +30,7 @@ def save_sample_images(m_gen, epoch, cfg):
     xhat = F.interpolate(xhat, scale_factor=(5.0, 5.0))
     tv.utils.save_image(xhat, "samples/%03d.png" % epoch)
 
-def train(m_gen, m_disc, train_loader, test_loader, optimizers, cfg):
+def train(m_gen, m_disc, train_loader, optimizers, cfg):
     cudev = cfg["cuda"]
     batch_size = cfg["batch_size"]
     optD,optG = optimizers
@@ -73,7 +38,7 @@ def train(m_gen, m_disc, train_loader, test_loader, optimizers, cfg):
             + (1-y)*torch.log(1-yhat) )
     g_criterion = lambda yhat : -torch.mean( torch.log(yhat) )
     criterion = nn.BCELoss()
-    for epoch in range(100):
+    for epoch in range( cfg["num_epochs"] ):
         for i,(real_x,_) in enumerate(train_loader):
             real_labels = torch.ones(batch_size).cuda(cudev)
             fake_labels = torch.zeros(batch_size).cuda(cudev)
@@ -105,16 +70,9 @@ def train(m_gen, m_disc, train_loader, test_loader, optimizers, cfg):
             
         save_sample_images(m_gen, epoch, cfg)
 
-def z_sampler(batch_size, z_dim, cudev):
-    if cudev >= 0:
-        z = torch.cuda.FloatTensor(batch_size, z_dim).normal_(0.0,1.0)
-    else:
-        z = torch.FloatTensor(batch_size, z_dim).normal_(0.0,1.0)
-    return z
-
 def main(args):
     cfg = vars(args)
-    train_loader,test_loader = get_loaders(cfg)
+    train_loader = get_loaders(cfg)
     m_gen = Generator(cfg["z_dim"])
     m_disc = Discriminator()
     cudev = cfg["cuda"]
@@ -125,7 +83,7 @@ def main(args):
         momentum=cfg["momentum"])
     optD = torch.optim.SGD([{"params" : m_disc.parameters()}], lr=cfg["lr_d"],
         momentum=cfg["momentum"])
-    train(m_gen, m_disc, train_loader, test_loader, (optD,optG), cfg)
+    train(m_gen, m_disc, train_loader, (optD,optG), cfg)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -133,6 +91,7 @@ if __name__ == "__main__":
             help="Cuda device number, select -1 for cpu")
     parser.add_argument("--num-workers", type=int, default=4,
         help="Number of worker threads to use loading data")
+    parser.add_argument("--num-epochs", type=int, default=100)
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--z-dim", type=int, default=100,
         help="Number of latent space units")

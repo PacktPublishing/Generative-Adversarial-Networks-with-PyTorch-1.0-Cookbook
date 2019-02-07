@@ -9,14 +9,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torchvision as tv
-from torch.utils.data import DataLoader
 
-
-def save_sample_images(generator, path, cfg):
-    z = z_sampler(cfg["batch_size"], cfg["z_dim"], cfg["cuda"])
-    xhat = generator(z)
-    xhat = F.interpolate(xhat, scale_factor=(5.0, 5.0))
-    tv.utils.save_image(xhat, path)
 
 def z_sampler(batch_size, z_dim, cudev):
     if cudev >= 0:
@@ -43,14 +36,16 @@ class Generator(nn.Module):
 
 
 def _test_main(args):
-    cfg = vars(args)
     generator = Generator(z_dim=args.z_dim)
-    save_sample_images(generator, "./samples/test_gen.png", cfg)
+    z = z_sampler(args.batch_size, args.z_dim, args.cuda)
+    xhat = generator(z)
+    xhat = F.interpolate(xhat, scale_factor=(5.0, 5.0))
+    tv.utils.save_image(xhat, "./samples/test_gen.png")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--batch-size", type=int, default=32)
+    parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--z-dim", type=int, default=100,
             help="Size of the input layer")
     parser.add_argument("--cuda", type=int, default=0,

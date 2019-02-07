@@ -30,9 +30,9 @@ class Discriminator(nn.Module):
 def _test_main(args):
     discriminator = Discriminator()
     if args.cuda >= 0:
-        x = torch.cuda.FloatTensor(args.batch_size, 1, 28, 28)
+        x = torch.cuda.FloatTensor(args.batch_size, 1, 28, 28).uniform_(0,1)
     else:
-        x = torch.FloatTensor(args.batch_size, 1, 28, 28)
+        x = torch.FloatTensor(args.batch_size, 1, 28, 28).uniform_(0,1)
     pred = discriminator(x)
     print("Predictions:")
     print(pred)

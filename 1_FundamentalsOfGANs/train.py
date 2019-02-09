@@ -14,6 +14,7 @@ from torch.utils.data import DataLoader
 
 from generator import Generator, z_sampler
 from discriminator import Discriminator
+from utils import create_session_dir
 
 def get_loaders(cfg):
     train_loader = DataLoader(
@@ -37,7 +38,6 @@ def train(m_gen, m_disc, train_loader, optimizers, cfg):
     d_criterion = lambda yhat,y : -torch.mean( y*torch.log(yhat) \
             + (1-y)*torch.log(1-yhat) )
     g_criterion = lambda yhat : -torch.mean( torch.log(yhat) )
-    criterion = nn.BCELoss()
     for epoch in range( cfg["num_epochs"] ):
         for i,(real_x,_) in enumerate(train_loader):
             real_labels = torch.ones(batch_size).cuda(cudev)
@@ -52,8 +52,8 @@ def train(m_gen, m_disc, train_loader, optimizers, cfg):
 
             optD.zero_grad()
             fake_x = m_gen(z)
-            d_fake_loss = criterion(m_disc(fake_x), fake_labels)
-            d_real_loss = criterion(m_disc(real_x), real_labels)
+            d_fake_loss = d_criterion(m_disc(fake_x), fake_labels)
+            d_real_loss = d_criterion(m_disc(real_x), real_labels)
             d_loss = d_fake_loss + d_real_loss
 
             d_loss.backward()
@@ -61,7 +61,7 @@ def train(m_gen, m_disc, train_loader, optimizers, cfg):
 
             optG.zero_grad()
             fake_x2 = m_gen( z_sampler(batch_size, cfg["z_dim"], cudev) )
-            g_loss = criterion(m_disc(fake_x2), real_labels)
+            g_loss = g_criterion(m_disc(fake_x2))
             g_loss.backward()
             optG.step()
 
@@ -72,10 +72,14 @@ def train(m_gen, m_disc, train_loader, optimizers, cfg):
 
 def main(args):
     cfg = vars(args)
+    cfg["session_dir"] = create_session_dir()
+    init_session_log(cfg)
     train_loader = get_loaders(cfg)
     m_gen = Generator(cfg["z_dim"])
     m_disc = Discriminator()
     cudev = cfg["cuda"]
+    if cudev >= 0 and not torch.cuda.is_available():
+        raise RuntimeError("CUDA device specified but CUDA not available")
     if cudev >= 0:
         m_gen.cuda(cudev)
         m_disc.cuda(cudev)
@@ -87,7 +91,7 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--cuda", type=int, default=0,
+    parser.add_argument("--cuda", type=int, default=-1,
             help="Cuda device number, select -1 for cpu")
     parser.add_argument("--num-workers", type=int, default=4,
         help="Number of worker threads to use loading data")

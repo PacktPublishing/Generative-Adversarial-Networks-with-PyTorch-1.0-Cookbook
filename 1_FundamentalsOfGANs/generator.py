@@ -48,7 +48,7 @@ if __name__ == "__main__":
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--z-dim", type=int, default=100,
             help="Size of the input layer")
-    parser.add_argument("--cuda", type=int, default=0,
+    parser.add_argument("--cuda", type=int, default=-1,
             help="Cuda device number, select -1 for cpu")
     args = parser.parse_args()
     _test_main(args)

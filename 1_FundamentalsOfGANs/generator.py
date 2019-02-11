@@ -22,8 +22,8 @@ def z_sampler(batch_size, z_dim, cudev):
 class Generator(nn.Module):
     def __init__(self, z_dim):
         super().__init__()
-        self._fc1 = nn.Linear(z_dim, 150, bias=False)
-        self._fc2 = nn.Linear(150, 784, bias=False)
+        self._fc1 = nn.Linear(z_dim, 300, bias=False)
+        self._fc2 = nn.Linear(300, 784, bias=False)
 
         nn.init.normal_(self._fc1.weight, mean=0, std=0.1)
         nn.init.normal_(self._fc2.weight, mean=0, std=0.1)

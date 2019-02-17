@@ -2,6 +2,7 @@
 General utilities for working with the code for Packt Fundamentals of GANs
 """
 
+import logging
 import os
 import sys
 import torch
@@ -11,19 +12,27 @@ pj = os.path.join
 
 def create_session_dir(sessions_dir):
     ct = 0
-    while pe(pj(sessions_dir, "session_%02d")):
+    while pe(pj(sessions_dir, "session_%02d" % ct)):
         ct += 1
-    return pj(sessions_dir, "session_%02d" % (ct))
+    session_dir = pj(sessions_dir, "session_%02d" % ct)
+    os.makedirs(session_dir) 
+    return session_dir
 
-def init_session_log(cfg):
-    with open(pj(cfg["session_dir"], "session.log"), "w") as fp:
-        fp.write("Command line:\n")
-        cmdln_args = " ".join(sys.argv)
-        fp.write("%s\n\n" % cmdln_args)
+def init_session_log(cfg, filemode="w"):
+    logging.basicConfig(level=logging.DEBUG,
+            filename=pj(cfg["session_dir"], "session.log"),
+            filemode=filemode)
+    console = logging.StreamHandler()
+    console.setLevel(logging.INFO)
+    logging.getLogger("").addHandler(console)
 
-        print("Full parameter list")
-        for k,v in cfg.items():
-            fp.write("%s: %s\n" % (k, repr(v)))
+    logging.info("Command line:")
+    cmdln_args = " ".join(sys.argv)
+    logging.info("%s\n" % cmdln_args)
+
+    logging.info("Full parameter list")
+    for k,v in cfg.items():
+        logging.info("%s: %s" % (k, repr(v)))
 
 def show_devices():
     if not torch.cuda.is_available():

@@ -1,5 +1,5 @@
 """
-The Generator for our simple MNIST GAN.
+The Discriminator for our simple MNIST GAN.
 """
 
 import argparse
@@ -14,16 +14,21 @@ import torchvision as tv
 class Discriminator(nn.Module):
     def __init__(self):
         super().__init__()
-        self._fc1 = nn.Linear(784, 150, bias=False)
-        self._fc2 = nn.Linear(150, 1, bias=False)
+        self._fc1 = nn.Linear(784, 240, bias=False)
+        self._fc2 = nn.Linear(240, 240, bias=False)
+        self._fc3 = nn.Linear(240, 1, bias=False)
 
-        nn.init.normal_(self._fc1.weight, mean=0, std=0.1)
-        nn.init.normal_(self._fc2.weight, mean=0, std=0.1)
+        nn.init.uniform_(self._fc1.weight, a=-0.005, b=0.005)
+        nn.init.uniform_(self._fc2.weight, a=-0.005, b=0.005)
+        nn.init.uniform_(self._fc3.weight, a=-0.005, b=0.005)
+#        nn.init.normal_(self._fc1.weight, mean=0, std=0.1)
+#        nn.init.normal_(self._fc2.weight, mean=0, std=0.1)
 
     def forward(self, x):
         x = x.view(-1, 784)
         x = F.relu( self._fc1(x) )
-        x = torch.sigmoid( self._fc2(x) )
+        x = F.relu( self._fc2(x) )
+        x = torch.sigmoid( self._fc3(x) )
         return x
 
 

@@ -22,15 +22,20 @@ def z_sampler(batch_size, z_dim, cudev):
 class Generator(nn.Module):
     def __init__(self, z_dim):
         super().__init__()
-        self._fc1 = nn.Linear(z_dim, 300, bias=False)
-        self._fc2 = nn.Linear(300, 784, bias=False)
+        self._fc1 = nn.Linear(z_dim, 1200, bias=False)
+        self._fc2 = nn.Linear(1200, 1200, bias=False)
+        self._fc3 = nn.Linear(1200, 784, bias=False)
 
-        nn.init.normal_(self._fc1.weight, mean=0, std=0.1)
-        nn.init.normal_(self._fc2.weight, mean=0, std=0.1)
+        nn.init.uniform_(self._fc1.weight, a=-0.05, b=0.05)
+        nn.init.uniform_(self._fc2.weight, a=-0.05, b=0.05)
+        nn.init.uniform_(self._fc3.weight, a=-0.05, b=0.05)
+#        nn.init.normal_(self._fc1.weight, mean=0, std=0.1)
+#        nn.init.normal_(self._fc2.weight, mean=0, std=0.1)
 
     def forward(self, x):
         x = F.relu( self._fc1(x) )
         x = torch.sigmoid( self._fc2(x) )
+        x = torch.sigmoid( self._fc3(x) )
         x = x.view(-1, 1, 28, 28)
         return x
 

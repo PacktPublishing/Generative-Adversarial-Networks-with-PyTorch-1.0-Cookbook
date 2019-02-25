@@ -25,7 +25,7 @@ pe = os.path.exists
 pj = os.path.join
 
 
-def get_loaders(cfg):
+def get_loader(cfg):
     train_loader = DataLoader(
             tv.datasets.MNIST("data", train=True, download=True,
                 transform=tv.transforms.ToTensor()),
@@ -118,7 +118,7 @@ def main(args):
         start_epoch = 0
         filemode = "w"
     init_session_log(cfg, filemode)
-    train_loader = get_loaders(cfg)
+    train_loader = get_loader(cfg)
     cudev = cfg["cuda"]
     if cudev >= 0 and not torch.cuda.is_available():
         raise RuntimeError("CUDA device specified but CUDA not available")

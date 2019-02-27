@@ -25,10 +25,11 @@ pj = os.path.join
 #                 padding=0, dilation=1, groups=1, bias=True):
 class SimpleCNN(nn.Module):
     def __init__(self, input_size=(3,32,32), num_cats=10):
+        super().__init__()
         self._input_size = input_size
         self._num_cats = num_cats
 
-        input_ch = self_input_size[0]
+        input_ch = self._input_size[0]
         self._conv1 = nn.Conv2d(input_ch, 32, kernel_size=5, stride=2,
                 bias=True)
         self._bn1 = nn.BatchNorm2d(32)
@@ -38,16 +39,18 @@ class SimpleCNN(nn.Module):
         self._conv3 = nn.Conv2d(64, 64, kernel_size=5, stride=2,
                 bias=True)
         self._bn3 = nn.BatchNorm2d(64)
-        self._fc = nn.Linear(1024, self_num_cats, bias=True)
+        self._fc = nn.Linear(64, self._num_cats, bias=True)
 
     def forward(self, x):
+        batch_size = x.shape[0]
         x = self._conv1(x)
         x = torch.relu( self._bn1(x) )
         x = self._conv2(x)
         x = torch.relu( self._bn2(x) )
         x = self._conv3(x)
         x = torch.relu( self._bn3(x) )
-        x = torch.softmax( self._fc(x) )
+        x = x.view(batch_size, -1)
+        x = torch.softmax( self._fc(x), dim=1 )
         return x
 
 def get_loaders(cfg):
@@ -69,10 +72,25 @@ def get_loaders(cfg):
             num_workers=cfg["num_workers"])
     return train_loader,test_loader
 
-def train(cnn, loaders, optimizer, cfg):
+def train(cnn, data_loaders, optimizer, cfg):
     cudev = cfg["cuda"]
     batch_size = cfg["batch_size"]
     train_loader,test_loader = data_loaders
+    criterion = nn.CrossEntropyLoss()
+    for epoch in range( cfg["num_epochs"] ):
+        for i,(x,label) in enumerate(train_loader):
+            if cudev >= 0:
+                x = x.cuda(cudev)
+                label = label.cuda(cudev)
+
+            optimizer.zero_grad()
+            yhat = cnn(x)
+            loss = criterion(yhat, label)
+            loss.backward()
+            optimizer.step()
+
+        logging.info("Epoch %d: Training: Loss: %.4f, Accuracy: %.4f" \
+                % (epoch, loss.item(), 0.0))
 
 
 def main(args):
@@ -85,7 +103,9 @@ def main(args):
     cudev = cfg["cuda"]
     if cudev >= 0 and not torch.cuda.is_available():
         raise RuntimeError("CUDA device specified but CUDA not available")
-    cnn = SimpleCNN(cfg)
+    cnn = SimpleCNN()
+    if cudev >= 0:
+        cnn = cnn.cuda(cudev)
     optimizer = torch.optim.SGD([{"params" : cnn.parameters()}], lr=cfg["lr"],
         momentum=cfg["momentum"])
     train(cnn, (train_loader,test_loader), optimizer, cfg)
@@ -100,9 +120,7 @@ if __name__ == "__main__":
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--z-dim", type=int, default=100,
         help="Number of latent space units")
-    parser.add_argument("--lr-d", type=float, default=0.0001,
-            help="Model learning rate")
-    parser.add_argument("--lr-g", type=float, default=0.001,
+    parser.add_argument("--lr", type=float, default=0.001,
             help="Model learning rate")
     parser.add_argument("--momentum", type=float, default=0.9,
             help="Momentum parameter for the SGD optimizer")

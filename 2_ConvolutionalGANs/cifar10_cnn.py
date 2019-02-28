@@ -78,6 +78,7 @@ def train(cnn, data_loaders, optimizer, cfg):
     train_loader,test_loader = data_loaders
     criterion = nn.CrossEntropyLoss()
     for epoch in range( cfg["num_epochs"] ):
+        cnn.train()
         for i,(x,label) in enumerate(train_loader):
             if cudev >= 0:
                 x = x.cuda(cudev)
@@ -89,8 +90,33 @@ def train(cnn, data_loaders, optimizer, cfg):
             loss.backward()
             optimizer.step()
 
-        logging.info("Epoch %d: Training: Loss: %.4f, Accuracy: %.4f" \
-                % (epoch, loss.item(), 0.0))
+            accuracy = 100.0 * torch.mean( \
+                    (torch.argmax(yhat,dim=1) == label).float() )
+
+            if i%100 == 99:
+                logging.info("Training, Epoch %d, batch %d: Loss: %.4f, " \
+                        "Accuracy: %.4f" % (epoch, i, loss.item(), accuracy))
+
+        optimizer.zero_grad()
+        running_loss = 0
+        running_acc = 0
+        ct = 0
+        cnn.eval()
+        for (x,label) in test_loader:
+            if cudev >= 0:
+                x = x.cuda(cudev)
+                label = label.cuda(cudev)
+
+            yhat = cnn(x)
+            loss = criterion(yhat, label)
+            accuracy = 100.0 * torch.mean( \
+                    (torch.argmax(yhat,dim=1) == label).float() )
+            running_loss += loss.item()
+            running_acc += accuracy.item()
+            ct += 1
+
+        logging.info("TEST, Epoch %d: Loss: %.4f, Accuracy: %.4f" \
+                % (epoch, running_loss/ct, running_acc/ct))
 
 
 def main(args):

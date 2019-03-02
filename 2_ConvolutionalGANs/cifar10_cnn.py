@@ -20,6 +20,8 @@ from utils import create_session_dir, init_session_log
 pe = os.path.exists
 pj = os.path.join
 
+g_classes = ("plane", "car", "bird", "cat",
+           "deer", "dog", "frog", "horse", "ship", "truck")
 
 #    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
 #                 padding=0, dilation=1, groups=1, bias=True):
@@ -77,6 +79,8 @@ def train(cnn, data_loaders, optimizer, cfg):
     batch_size = cfg["batch_size"]
     train_loader,test_loader = data_loaders
     criterion = nn.CrossEntropyLoss()
+    samples_dir = pj(cfg["session_dir"], "samples_dir")
+    os.makedirs(samples_dir)
     for epoch in range( cfg["num_epochs"] ):
         cnn.train()
         for i,(x,label) in enumerate(train_loader):
@@ -117,6 +121,8 @@ def train(cnn, data_loaders, optimizer, cfg):
 
         logging.info("TEST, Epoch %d: Loss: %.4f, Accuracy: %.4f" \
                 % (epoch, running_loss/ct, running_acc/ct))
+        if epoch==0:
+            tv.utils.save_image(x[:32], pj(samples_dir, "%03d.png" % epoch))
 
 
 def main(args):

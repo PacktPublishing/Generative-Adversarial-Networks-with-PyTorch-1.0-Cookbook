@@ -1,0 +1,173 @@
+"""
+This is a DCGAN following Radford et al. 2015 which will train on Cifar-10 and
+generate images accordingly.
+"""
+
+import argparse
+import logging
+import os
+import sys
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torchvision as tv
+from torch.utils.data import DataLoader
+
+from tensorboardX import SummaryWriter
+
+from make_conv_layers import ConvLayers, DeconvLayers
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from utils import create_session_dir, init_session_log
+
+pe = os.path.exists
+pj = os.path.join
+
+class Generator(DeconvLayers):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+    def forward(self, x):
+        x = x.view((-1, x.shape[1], 1, 1))
+        x = super().forward(x)
+        x = torch.tanh(x)
+        return x
+
+class Discriminator(ConvLayers):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self._fc = None
+
+        c_out = self._num_base_chans*( 2**(self._num_layers-1) ) * 4
+        self._fc = nn.Linear(c_out, 1)
+#        self._last_conv = None
+#
+#        self._last_conv = nn.Conv2d(self._num_base_chans*(\
+#                2**(self._num_layers-1)), 3, kernel_size=self._kernel_size,
+#                padding=1, stride=self._stride)
+
+    def forward(self, x):
+        x = super().forward(x)
+#        x = self._last_conv(x)
+        x = self._fc( x.view((x.shape[0], -1)) )
+        x = torch.sigmoid(x)
+        return x
+
+def get_loader(cfg):
+    train_transform = tv.transforms.Compose([
+        tv.transforms.RandomHorizontalFlip(),
+        tv.transforms.ToTensor()
+        ])
+    train_loader = DataLoader(
+            tv.datasets.CIFAR10("data", train=True, download=True,
+                transform=train_transform),
+            batch_size=cfg["batch_size"],
+            shuffle=True,
+            num_workers=cfg["num_workers"])
+    return train_loader
+
+def save_sample_images(m_gen, epoch, cfg):
+    z = z_sampler(cfg["batch_size"], cfg["z_dim"], cfg["cuda"])
+    xhat = m_gen(z)
+    xhat = F.interpolate(xhat, scale_factor=(5.0, 5.0))
+    tv.utils.save_image(xhat, "samples/%03d.png" % epoch)
+
+def train(m_gen, m_disc, train_loader, optimizers, cfg):
+    cudev = cfg["cuda"]
+    batch_size = cfg["batch_size"]
+    optD,optG = optimizers
+    eps = 1e-6
+    d_criterion = lambda yhat,y : -torch.mean( y*torch.log(yhat+eps) \
+            + (1-y)*torch.log(1-yhat+eps) )
+    g_criterion = lambda yhat : -torch.mean( torch.log(yhat+eps) )
+    tboard_dir = pj(cfg["session_dir"], "tensorboard")
+    if not pe(tboard_dir): os.makedirs(tboard_dir)
+    writer = SummaryWriter( pj(cfg["session_dir"], "tensorboard") )
+    models_dir = pj(cfg["session_dir"], "models")
+    if not pe(models_dir): os.makedirs(models_dir)
+    num_batches = len(train_loader) // batch_size
+    for epoch in range(cfg["num_epochs"]):
+        for i,(real_x,_) in enumerate(train_loader):
+            real_labels = torch.ones(batch_size)
+            fake_labels = torch.zeros(batch_size)
+            if cudev >= 0:
+                real_x = real_x.cuda(cudev)
+                real_labels = real_labels.cuda(cudev)
+                fake_labels = fake_labels.cuda(cudev)
+                labels = torch.cat((torch.ones(batch_size), 
+                    torch.zeros(batch_size))).cuda(cudev)
+            z = z_sampler(batch_size, cfg["z_dim"], cudev)
+
+            optD.zero_grad()
+            fake_x = m_gen(z)
+            d_fake_loss = d_criterion(m_disc(fake_x), fake_labels)
+            d_real_loss = d_criterion(m_disc(real_x), real_labels)
+            d_loss = d_fake_loss + d_real_loss
+
+            d_loss.backward(retain_graph=True)
+            optD.step()
+
+            optG.zero_grad()
+            g_loss = g_criterion(m_disc(fake_x))
+            g_loss.backward()
+            optG.step()
+
+            writer.add_scalars("Loss", {"Generator" : g_loss.item(),
+                "Discriminator/Real" : d_real_loss.item(),
+                "Discriminator/Fake" : d_fake_loss.item()}, epoch*num_batches+1)
+
+        logging.info("Epoch %d: GLoss: %.4f, DLossReal: %.4f, DLossFake: %.4f" \
+                % (epoch, g_loss.item(), d_real_loss.item(),d_fake_loss.item()))
+            
+        save_sample_images(m_gen, epoch, cfg)
+        torch.save(m_gen.state_dict(), pj(models_dir, "generator_%04d.pkl" \
+                % (epoch)))
+        torch.save(m_disc.state_dict(), pj(models_dir, "discriminator_%04d.pkl"\
+                % (epoch)))
+        
+# TODO put in utils.py
+def z_sampler(batch_size, z_dim, cudev):
+    if cudev >= 0:
+        z = torch.cuda.FloatTensor(batch_size, z_dim).normal_(0.0,1.0)
+    else:
+        z = torch.FloatTensor(batch_size, z_dim).normal_(0.0,1.0)
+    return z
+
+
+def main(args):
+    cfg = vars(args)
+    cfg["session_dir"] = create_session_dir("./sessions")
+    m_gen = Generator(z_dim=cfg["z_dim"], num_layers=5)
+    m_disc = Discriminator()
+    init_session_log(cfg, "w")
+    train_loader = get_loader(cfg)
+    cudev = cfg["cuda"]
+    if cudev >= 0 and not torch.cuda.is_available():
+        raise RuntimeError("CUDA device specified but CUDA not available")
+    if cudev >= 0:
+        m_gen.cuda(cudev)
+        m_disc.cuda(cudev)
+    optG = torch.optim.SGD([{"params" : m_gen.parameters()}], lr=cfg["lr_g"],
+        momentum=cfg["momentum"])
+    optD = torch.optim.SGD([{"params" : m_disc.parameters()}], lr=cfg["lr_d"],
+        momentum=cfg["momentum"])
+    train(m_gen, m_disc, train_loader, (optD,optG), cfg)
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--cuda", type=int, default=0,
+            help="Cuda device number, select -1 for cpu")
+    parser.add_argument("--num-workers", type=int, default=4,
+        help="Number of worker threads to use loading data")
+    parser.add_argument("--num-epochs", type=int, default=100)
+    parser.add_argument("--batch-size", type=int, default=32)
+    parser.add_argument("--z-dim", type=int, default=100,
+        help="Number of latent space units")
+    parser.add_argument("--lr-d", type=float, default=0.0001,
+            help="Model learning rate")
+    parser.add_argument("--lr-g", type=float, default=0.001,
+            help="Model learning rate")
+    parser.add_argument("--momentum", type=float, default=0.9,
+            help="Momentum parameter for the SGD optimizer")
+    args = parser.parse_args()
+    main(args)

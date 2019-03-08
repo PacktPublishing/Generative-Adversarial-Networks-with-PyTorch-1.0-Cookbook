@@ -61,9 +61,14 @@ class DeconvLayers(nn.Module):
         c_in = self._z_dim
         c_out = self._num_base_chans * (2**(self._num_layers-1))
         for i in range(self._num_layers):
-            layers.append( nn.ConvTranspose2d(c_in, c_out,
-                kernel_size=self._kernel_size, padding=1, stride=self._stride,
-                bias=False) )
+            if i==0:
+                layers.append( nn.ConvTranspose2d(c_in, c_out,
+                    kernel_size=self._kernel_size, padding=0, stride=1,
+                    bias=False) )
+            else:
+                layers.append( nn.ConvTranspose2d(c_in, c_out,
+                    kernel_size=self._kernel_size, padding=1,
+                    stride=self._stride, bias=False) )
             layers.append( nn.BatchNorm2d(c_out) )
             layers.append( nn.ReLU(inplace=True) )
             c_in = c_out
@@ -76,13 +81,16 @@ class DeconvLayers(nn.Module):
 
 def _test_main(args):
     if args.test == "ConvLayers":
+        print("Creating layers suitable for a Discriminator")
         net = ConvLayers(num_layers=args.num_layers,
                 num_base_chans=args.num_base_chans,
                 kernel_size=args.kernel_size,
                 stride=args.stride,
                 is_transpose=args.is_transpose)
-        x = torch.FloatTensor(1, 3, 64, 64).normal_(0,1)
+        sz = args.test_input_size
+        x = torch.FloatTensor(1, 3, sz, sz).normal_(0,1)
     else:
+        print("Creating layers suitable for a Generator")
         net = DeconvLayers(num_layers=args.num_layers,
                 num_base_chans=args.num_base_chans,
                 z_dim=args.z_dim,
@@ -99,6 +107,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--test", type=str, default="ConvLayers",
             choices=["ConvLayers", "DeconvLayers"])
+    parser.add_argument("--test-input-size", type=int, default=64)
     parser.add_argument("--num-layers", type=int, default=4)
     parser.add_argument("--z-dim", type=int, default=100)
     parser.add_argument("--num-base-chans", type=int, default=16)

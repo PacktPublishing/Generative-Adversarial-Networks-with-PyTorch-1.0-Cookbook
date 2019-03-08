@@ -37,19 +37,16 @@ class Discriminator(ConvLayers):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self._fc = None
+        self._last_conv = None
 
         c_out = self._num_base_chans*( 2**(self._num_layers-1) ) * 4
-        self._fc = nn.Linear(c_out, 1)
-#        self._last_conv = None
-#
-#        self._last_conv = nn.Conv2d(self._num_base_chans*(\
-#                2**(self._num_layers-1)), 3, kernel_size=self._kernel_size,
-#                padding=1, stride=self._stride)
+        self._last_conv = nn.Conv2d(128, 1, kernel_size=self._kernel_size,
+                stride=1, padding=0)
 
     def forward(self, x):
         x = super().forward(x)
-#        x = self._last_conv(x)
-        x = self._fc( x.view((x.shape[0], -1)) )
+        x = self._last_conv(x)
+#        x = self._fc( x.view((x.shape[0], -1)) )
         x = torch.sigmoid(x)
         return x
 
@@ -70,9 +67,14 @@ def save_sample_images(m_gen, epoch, cfg):
     z = z_sampler(cfg["batch_size"], cfg["z_dim"], cfg["cuda"])
     xhat = m_gen(z)
     xhat = F.interpolate(xhat, scale_factor=(5.0, 5.0))
-    tv.utils.save_image(xhat, "samples/%03d.png" % epoch)
+    samples_dir = pj(cfg["session_dir"], "samples")
+    if not pe(samples_dir):
+        os.makedirs(samples_dir)
+    tv.utils.save_image(xhat, pj(samples_dir,"%03d.png" % epoch))
 
 def train(m_gen, m_disc, train_loader, optimizers, cfg):
+    m_gen.apply(weights_init)
+    m_disc.apply(weights_init)
     cudev = cfg["cuda"]
     batch_size = cfg["batch_size"]
     optD,optG = optimizers
@@ -125,6 +127,16 @@ def train(m_gen, m_disc, train_loader, optimizers, cfg):
         torch.save(m_disc.state_dict(), pj(models_dir, "discriminator_%04d.pkl"\
                 % (epoch)))
         
+# Taken from pytorch DCGAN tutorial
+# custom weights initialization called on netG and netD
+def weights_init(m):
+    classname = m.__class__.__name__
+    if classname.find('Conv') != -1:
+        nn.init.normal_(m.weight.data, 0.0, 0.02)
+    elif classname.find('BatchNorm') != -1:
+        nn.init.normal_(m.weight.data, 1.0, 0.02)
+        nn.init.constant_(m.bias.data, 0)
+
 # TODO put in utils.py
 def z_sampler(batch_size, z_dim, cudev):
     if cudev >= 0:
@@ -137,8 +149,8 @@ def z_sampler(batch_size, z_dim, cudev):
 def main(args):
     cfg = vars(args)
     cfg["session_dir"] = create_session_dir("./sessions")
-    m_gen = Generator(z_dim=cfg["z_dim"], num_layers=5)
-    m_disc = Discriminator()
+    m_gen = Generator(z_dim=cfg["z_dim"], num_layers=4, num_base_chans=32)
+    m_disc = Discriminator(num_base_chans=32, num_layers=3)
     init_session_log(cfg, "w")
     train_loader = get_loader(cfg)
     cudev = cfg["cuda"]
@@ -147,10 +159,12 @@ def main(args):
     if cudev >= 0:
         m_gen.cuda(cudev)
         m_disc.cuda(cudev)
-    optG = torch.optim.SGD([{"params" : m_gen.parameters()}], lr=cfg["lr_g"],
-        momentum=cfg["momentum"])
-    optD = torch.optim.SGD([{"params" : m_disc.parameters()}], lr=cfg["lr_d"],
-        momentum=cfg["momentum"])
+
+    optD = torch.optim.Adam(m_disc.parameters(), lr=cfg["lr_d"],
+            betas=(0.5, 0.999))
+    optG = torch.optim.Adam(m_gen.parameters(), lr=cfg["lr_g"],
+            betas=(0.5, 0.999))
+
     train(m_gen, m_disc, train_loader, (optD,optG), cfg)
 
 if __name__ == "__main__":

@@ -3,12 +3,45 @@ General utilities for working with the code for Packt Fundamentals of GANs
 """
 
 import logging
+import numpy as np
 import os
 import sys
 import torch
 
 pe = os.path.exists
 pj = os.path.join
+
+def compute_features(model, data_loader, gpu_device=0, make_chip_list=True):
+    logging.debug("compute_features")
+    logging.info("Generating features ...")
+    features = []
+    chip_list = []
+    if torch.cuda.is_available():
+        model = model.cuda(gpu_device)
+    if make_chip_list:
+        data_loader.dataset.set_return_names(True)
+        for inputs,_,name in data_loader:
+            inputs = torch.autograd.Variable(inputs.cuda(gpu_device))
+            outputs = model.get_features(inputs)
+            features.append( outputs.cpu().data.numpy() )
+            chip_list.append(name)
+        data_loader.dataset.set_return_names(False)
+        chip_list = np.squeeze( np.concatenate(chip_list) )
+    else:
+        for inputs,_ in data_loader:
+            inputs = torch.autograd.Variable(inputs.cuda(gpu_device))
+            outputs = model.get_features(inputs)
+            features.append( outputs.cpu().data.numpy() )
+    model = model.cpu()
+    features = np.concatenate(features)
+    logging.info("... Done, %d features generated." % (len(features)))
+    features = np.squeeze( features )
+    if len(features.shape) > 2:
+        raise RuntimeError("Feature matrix has too many dimensions:",
+            features.shape)
+    if make_chip_list:
+        return features,chip_list
+    return features
 
 def create_session_dir(sessions_dir):
     ct = 0
@@ -43,4 +76,12 @@ def show_devices():
         name = torch.cuda.get_device_name(i)
         capability = torch.cuda.get_device_capability(i)
         print("\tDevice %d: %s, %s" % (i, name, capability))
+
+def z_sampler(batch_size, z_dim, cudev):
+    if cudev >= 0:
+        z = torch.cuda.FloatTensor(batch_size, z_dim).normal_(0.0,1.0)
+    else:
+        z = torch.FloatTensor(batch_size, z_dim).normal_(0.0,1.0)
+    return z
+
 

@@ -79,46 +79,47 @@ class InceptionV3(nn.Module):
         return self.forward(x)
 
 
+def calculate_fid(cfg):
+    model = get_inception()
+    cudev = cfg["cuda"]
+    if cudev >= 0:
+        model.cuda(cudev)
+    m1,cov1 = get_mean_and_cov(cfg["dataset_1"], model, cfg)
+    m2,cov2 = get_mean_and_cov(cfg["dataset_2"], model, cfg)
+    fid_value = calculate_frechet(m1, cov1, m2, cov2)
+    return fid_value
+
+# Lucic et al. 2017
+def calculate_frechet(mu1, sigma1, mu2, sigma2):
+    dmu = mu1 - mu2
+    cov_mean,_ = linalg.sqrtm(sigma1.dot(sigma2), disp=False)
+    frechet = dmu.dot(dmu) + np.trace(sigma1 + sigma2 - 2*cov_mean)
+    return frechet
+
 def check_paths(cfg):
     cfg["dataset_1"] = os.path.abspath(cfg["dataset_1"])
     cfg["dataset_2"] = os.path.abspath(cfg["dataset_2"])
     if not pe(cfg["dataset_1"]) or not pe(cfg["dataset_2"]):
         raise RuntimeError("Invalid path supplied")
 
-def get_mean_and_sd(path, model, cfg):
+def get_mean_and_cov(path, model, cfg):
     dataset = ImageFolder(path, cfg["ext"])
     data_loader = DataLoader(dataset, batch_size=cfg["batch_size"],
             num_workers=cfg["num_workers"], shuffle=False)
-    m,s = calculate_activation_statistics(data_loader, model, cfg["cuda"])
-    return m, s
+    feats = compute_features(model, data_loader, cfg["cuda"],
+            make_chip_list=False)
+    mu = np.mean(feats, axis=0)
+    cov = np.cov(feats, rowvar=False)
+    return mu,cov
 
 def get_inception():
     inception = InceptionV3()
     return inception
 
-#def compute_features(model, data_loader, gpu_device=0, make_chip_list=True):
-def calculate_activation_statistics(data_loader, model, cuda=False):
-    feats = compute_features(model, data_loader, cuda, make_chip_list=False)
-    mu = np.mean(feats, axis=0)
-    sigma = np.cov(feats, rowvar=False)
-    return mu, sigma
-
-def calculate_fid(cfg):
-    model = get_inception()
-    cudev = cfg["cuda"]
-    if cudev >= 0:
-        model.cuda(cudev)
-
-    m1,s1 = get_mean_and_sd(cfg["dataset_1"], model, cfg)
-    m2,s2 = get_mean_and_sd(cfg["dataset_2"], model, cfg)
-    print(m1, s1, m2, s2)
-#    fid_value = calculate_frechet_distance(m1, s1, m2, s2)
-
-    return fid_value
-
 
 def main(args):
     cfg = vars(args)
+    check_paths(cfg)
     fid = calculate_fid(cfg)
     print("FID: ", fid)
     
@@ -126,9 +127,9 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--d1", "--dataset-1", dest="dataset_1", type=str,
-            required=True)
+            default="./data/cifar10-real")
     parser.add_argument("--d2", "--dataset-2", dest="dataset_2", type=str,
-            required=True)
+            default="./data/cifar10-fake")
     parser.add_argument("--cuda", type=int, default=0,
             help="Cuda device number, select -1 for cpu")
     parser.add_argument("--num-workers", type=int, default=4,

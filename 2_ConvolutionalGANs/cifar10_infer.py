@@ -57,7 +57,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--mp", "--model-path", dest="model_path", type=str,
             required=True)
-    parser.add_argument("-o", "--output-dir", type=str, required=True)
+    parser.add_argument("-o", "--output-dir", type=str,
+            default="./data/cifar10-fake")
     parser.add_argument("--cuda", type=int, default=-1,
             help="Cuda device number, select -1 for cpu")
     parser.add_argument("--batch-size", type=int, default=256)

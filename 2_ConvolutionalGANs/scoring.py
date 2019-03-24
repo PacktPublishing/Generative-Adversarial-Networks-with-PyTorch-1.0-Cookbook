@@ -19,12 +19,6 @@ from torch.utils.data import Dataset, DataLoader
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils import compute_features
 
-try:
-    from tqdm import tqdm
-except ImportError:
-    # If not tqdm is not available, provide a mock version of it
-    def tqdm(x): return x
-
 pe = os.path.exists
 pj = os.path.join
 
@@ -80,48 +74,75 @@ class InceptionV3(nn.Module):
 
 
 def calculate_fid(cfg):
-    model = get_inception()
     cudev = cfg["cuda"]
     if cudev >= 0:
         model.cuda(cudev)
-    m1,cov1 = get_mean_and_cov(cfg["dataset_1"], model, cfg)
-    m2,cov2 = get_mean_and_cov(cfg["dataset_2"], model, cfg)
+    m1,cov1 = get_mean_and_cov(cfg["dataset_1"], cfg)
+    m2,cov2 = get_mean_and_cov(cfg["dataset_2"], cfg)
     fid_value = calculate_frechet(m1, cov1, m2, cov2)
     return fid_value
 
 # Lucic et al. 2017
-def calculate_frechet(mu1, sigma1, mu2, sigma2):
+def calculate_frechet(mu1, cov1, mu2, cov2):
     dmu = mu1 - mu2
-    cov_mean,_ = linalg.sqrtm(sigma1.dot(sigma2), disp=False)
-    frechet = dmu.dot(dmu) + np.trace(sigma1 + sigma2 - 2*cov_mean)
+    cov_mean,_ = linalg.sqrtm(cov1.dot(cov2), disp=False)
+    frechet = dmu.dot(dmu) + np.trace(cov1 + cov2 - 2*cov_mean)
     return frechet
 
+def calculate_inc_score(cfg):
+    feats = get_feats(cfg["dataset_1"], cfg)
+    feats = feats[:,:1000]
+    feats = np.exp(feats) / np.sum(np.exp(feats), 1, keepdims=True)
+    mean,std = feats_score(feats, cfg["inc_score_splits"])
+    return mean,std
+    
 def check_paths(cfg):
     cfg["dataset_1"] = os.path.abspath(cfg["dataset_1"])
     cfg["dataset_2"] = os.path.abspath(cfg["dataset_2"])
-    if not pe(cfg["dataset_1"]) or not pe(cfg["dataset_2"]):
+    if not pe(cfg["dataset_1"]) or (cfg["method"]=="fid" \
+            and not pe(cfg["dataset_2"])):
         raise RuntimeError("Invalid path supplied")
 
-def get_mean_and_cov(path, model, cfg):
-    dataset = ImageFolder(path, cfg["ext"])
+def feats_score(feats, splits):
+    scores = []
+    inc = feats.shape[0] // splits
+    for i in range(splits):
+        p = feats[ (i * inc) : ((i + 1) * inc), : ]
+        q = np.expand_dims(np.mean(p, axis=0), axis=0)
+        kl_div = p * (np.log(p) - np.log(q))
+        kl_div = np.mean(np.sum(kl_div, 1))
+        scores.append(np.exp(kl_div))
+    return np.mean(scores), np.std(scores)
+
+def get_feats(path, cfg):
+    print("Getting Inception V3 model...")
+    model = InceptionV3()
+    print("...Done")
+    dataset = ImageFolder(path, ext=cfg["ext"])
     data_loader = DataLoader(dataset, batch_size=cfg["batch_size"],
             num_workers=cfg["num_workers"], shuffle=False)
+    print("Generating features...")
     feats = compute_features(model, data_loader, cfg["cuda"],
             make_chip_list=False)
+    print("...Done")
+    return feats
+
+def get_mean_and_cov(path, cfg):
+    feats = get_feats(path, cfg)
     mu = np.mean(feats, axis=0)
     cov = np.cov(feats, rowvar=False)
     return mu,cov
-
-def get_inception():
-    inception = InceptionV3()
-    return inception
 
 
 def main(args):
     cfg = vars(args)
     check_paths(cfg)
-    fid = calculate_fid(cfg)
-    print("FID: ", fid)
+    if cfg["method"]=="fid":
+        fid = calculate_fid(cfg)
+        print("FID: %0.4f" % fid)
+    else:
+        inc_score,is_std = calculate_inc_score(cfg)
+        print("Inception score: %0.4f with std %0.4f" % (inc_score, is_std))
     
 
 if __name__ == "__main__":
@@ -137,8 +158,11 @@ if __name__ == "__main__":
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--ext", "--extension", dest="ext", type=str,
             default=".png")
+    parser.add_argument("--method", type=str, default="fid",
+            choices=["fid", "inc_score"])
     parser.add_argument("--incep-feat-dim", type=int, default=2048,
             help="Size of Inception feature vectors to use")
+    parser.add_argument("--inc-score-splits", type=int, default=10)
     args = parser.parse_args()
     main(args)
 

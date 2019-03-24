@@ -4,6 +4,7 @@ This program runs inference using the Cifar-10 Generator we trained.
 
 import argparse
 import os
+import sys
 
 import torch
 import torch.nn.functional as F
@@ -14,6 +15,8 @@ from make_conv_layers import DeconvLayers
 pe = os.path.exists
 pj = os.path.join
 
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from utils import z_sampler
 
 class Generator(DeconvLayers):
     def __init__(self, **kwargs):
@@ -24,15 +27,6 @@ class Generator(DeconvLayers):
         x = super().forward(x)
         x = torch.tanh(x)
         return x
-
-# TODO put in utils.py
-def z_sampler(batch_size, z_dim, cudev):
-    if cudev >= 0:
-        z = torch.cuda.FloatTensor(batch_size, z_dim).normal_(0.0,1.0)
-    else:
-        z = torch.FloatTensor(batch_size, z_dim).normal_(0.0,1.0)
-    return z
-
 
 
 def main(args):
@@ -61,8 +55,8 @@ if __name__ == "__main__":
             default="./data/cifar10-fake")
     parser.add_argument("--cuda", type=int, default=-1,
             help="Cuda device number, select -1 for cpu")
-    parser.add_argument("--batch-size", type=int, default=256)
-    parser.add_argument("-n", "--num-batches", type=int, default=10)
+    parser.add_argument("--batch-size", type=int, default=100)
+    parser.add_argument("-n", "--num-batches", type=int, default=100)
     parser.add_argument("--z-dim", type=int, default=100,
         help="Number of latent space units")
     args = parser.parse_args()

@@ -1,5 +1,5 @@
 """
-This is a DCGAN following Radford et al. 2015 which will train on Cifar-10 and
+This is a DCGAN following Radford et al. 2015 which will train on Celeb-A and
 generate images accordingly.
 """
 
@@ -7,12 +7,13 @@ import argparse
 import logging
 import os
 import sys
+from PIL import Image
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torchvision as tv
-from torch.utils.data import DataLoader
+from torch.utils.data import Dataset, DataLoader
 
 from tensorboardX import SummaryWriter
 
@@ -39,8 +40,8 @@ class Discriminator(ConvLayers):
         self._fc = None
         self._last_conv = None
 
-        c_out = self._num_base_chans*( 2**(self._num_layers-1) ) * 4
-        self._last_conv = nn.Conv2d(128, 1, kernel_size=self._kernel_size,
+        c_out = self._num_base_chans*( 2**(self._num_layers-1) )
+        self._last_conv = nn.Conv2d(c_out, 1, kernel_size=self._kernel_size,
                 stride=1, padding=0)
 
     def forward(self, x):
@@ -49,18 +50,46 @@ class Discriminator(ConvLayers):
         x = torch.sigmoid(x)
         return x
 
+class ImageFolder(Dataset):
+    def __init__(self, data_path, transform=None, ext=".png"):
+        self._images = [pj(data_path,f) for f in os.listdir(data_path) \
+                if f.endswith(ext)]
+        self._transform = tv.transforms.ToTensor() if transform == None \
+                else transform
+
+    def __getitem__(self, index):
+        return self._transform( Image.open(self._images[index]) ), -1
+
+    def __len__(self):
+        return len(self._images)
+
+
 def get_loader(cfg):
+    input_size = 2**(cfg["num_layers"] + 1)
     train_transform = tv.transforms.Compose([
         tv.transforms.RandomHorizontalFlip(),
+        tv.transforms.ColorJitter(brightness=0.25, contrast=0.25,
+            saturation=0.25, hue=0.025),
+        tv.transforms.Resize(input_size),
         tv.transforms.ToTensor()
         ])
-    train_loader = DataLoader(
-            tv.datasets.CIFAR10("data", train=True, download=True,
-                transform=train_transform),
+    celeba_dataset = ImageFolder(cfg["celeba_path"], transform=train_transform,
+            ext=".jpg")
+    train_loader = DataLoader(dataset=celeba_dataset,
             batch_size=cfg["batch_size"],
             shuffle=True,
             num_workers=cfg["num_workers"])
     return train_loader
+
+def make_first_batch(train_loader, cfg):
+    fb_dir = pj(cfg["session_dir"], "first_batch")
+    os.makedirs(fb_dir)
+    cudev = cfg["cuda"]
+    for real_x,_ in train_loader:
+        if cudev >= 0:
+            real_x = real_x.cuda(cudev)
+        break
+    tv.utils.save_image(real_x, pj(fb_dir, "first_batch.png"))
 
 def save_sample_images(m_gen, epoch, cfg):
     z = z_sampler(cfg["batch_size"], cfg["z_dim"], cfg["cuda"])
@@ -148,10 +177,14 @@ def z_sampler(batch_size, z_dim, cudev):
 def main(args):
     cfg = vars(args)
     cfg["session_dir"] = create_session_dir("./sessions")
-    m_gen = Generator(z_dim=cfg["z_dim"], num_layers=4, num_base_chans=32)
-    m_disc = Discriminator(num_base_chans=32, num_layers=3)
+    m_gen = Generator(z_dim=cfg["z_dim"], num_layers=cfg["num_layers"],
+            num_base_chans=cfg["num_base_chans"])
+    m_disc = Discriminator(num_base_chans=cfg["num_base_chans"],
+            num_layers=cfg["num_layers"]-1)
     init_session_log(cfg, "w")
     train_loader = get_loader(cfg)
+    make_first_batch(train_loader, cfg)
+
     cudev = cfg["cuda"]
     if cudev >= 0 and not torch.cuda.is_available():
         raise RuntimeError("CUDA device specified but CUDA not available")
@@ -168,19 +201,32 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--cuda", type=int, default=0,
-            help="Cuda device number, select -1 for cpu")
-    parser.add_argument("--num-workers", type=int, default=4,
-        help="Number of worker threads to use loading data")
-    parser.add_argument("--num-epochs", type=int, default=100)
-    parser.add_argument("--batch-size", type=int, default=32)
+
+    # Dataset
+    parser.add_argument("--celeba-path", type=str,
+            default=pj("./data/celebA/celebA"))
+
+    # Model
+    parser.add_argument("--num-layers", type=int, default=5)
+    parser.add_argument("--num-base-chans", type=int, default=32)
     parser.add_argument("--z-dim", type=int, default=100,
         help="Number of latent space units")
+
+    # Training
     parser.add_argument("--lr-d", type=float, default=0.0001,
             help="Model learning rate")
     parser.add_argument("--lr-g", type=float, default=0.001,
             help="Model learning rate")
     parser.add_argument("--momentum", type=float, default=0.9,
             help="Momentum parameter for the SGD optimizer")
+    parser.add_argument("--num-epochs", type=int, default=100)
+    parser.add_argument("--batch-size", type=int, default=32)
+
+    # Hardware/OS
+    parser.add_argument("--cuda", type=int, default=0,
+            help="Cuda device number, select -1 for cpu")
+    parser.add_argument("--num-workers", type=int, default=4,
+        help="Number of worker threads to use loading data")
+
     args = parser.parse_args()
     main(args)

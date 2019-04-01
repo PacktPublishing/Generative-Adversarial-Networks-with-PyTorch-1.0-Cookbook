@@ -37,7 +37,6 @@ class Generator(DeconvLayers):
 class Discriminator(ConvLayers):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self._fc = None
         self._last_conv = None
 
         c_out = self._num_base_chans*( 2**(self._num_layers-1) )
@@ -66,13 +65,19 @@ class ImageFolder(Dataset):
 
 def get_loader(cfg):
     input_size = 2**(cfg["num_layers"] + 1)
+    print("Input size: %d" % input_size)
+#    train_transform = tv.transforms.Compose([
+#        tv.transforms.RandomHorizontalFlip(),
+#        tv.transforms.ColorJitter(brightness=0.25, contrast=0.25,
+#            saturation=0.25, hue=0.025),
+#        tv.transforms.Resize(input_size),
+#        tv.transforms.ToTensor()
+#        ])
     train_transform = tv.transforms.Compose([
-        tv.transforms.RandomHorizontalFlip(),
-        tv.transforms.ColorJitter(brightness=0.25, contrast=0.25,
-            saturation=0.25, hue=0.025),
-        tv.transforms.Resize(input_size),
-        tv.transforms.ToTensor()
-        ])
+       tv.transforms.Resize(input_size),
+       tv.transforms.CenterCrop(input_size),
+       tv.transforms.ToTensor(),
+       tv.transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)), ])
     celeba_dataset = ImageFolder(cfg["celeba_path"], transform=train_transform,
             ext=".jpg")
     train_loader = DataLoader(dataset=celeba_dataset,
@@ -92,7 +97,7 @@ def make_first_batch(train_loader, cfg):
     tv.utils.save_image(real_x, pj(fb_dir, "first_batch.png"))
 
 def save_sample_images(m_gen, epoch, cfg):
-    z = z_sampler(cfg["batch_size"], cfg["z_dim"], cfg["cuda"])
+    z = z_sampler(32, cfg["z_dim"], cfg["cuda"])
     xhat = m_gen(z)
     xhat = F.interpolate(xhat, scale_factor=(5.0, 5.0))
     samples_dir = pj(cfg["session_dir"], "samples")
@@ -107,9 +112,11 @@ def train(m_gen, m_disc, train_loader, optimizers, cfg):
     batch_size = cfg["batch_size"]
     optD,optG = optimizers
     eps = 1e-6
-    d_criterion = lambda yhat,y : -torch.mean( y*torch.log(yhat+eps) \
-            + (1-y)*torch.log(1-yhat+eps) )
-    g_criterion = lambda yhat : -torch.mean( torch.log(yhat+eps) )
+#    d_criterion = lambda yhat,y : -torch.mean( y*torch.log(yhat+eps) \
+#            + (1-y)*torch.log(1-yhat+eps) )
+#    g_criterion = lambda yhat : -torch.mean( torch.log(yhat+eps) )
+    d_criterion = nn.BCELoss()
+    g_criterion = nn.BCELoss()
     tboard_dir = pj(cfg["session_dir"], "tensorboard")
     if not pe(tboard_dir): os.makedirs(tboard_dir)
     writer = SummaryWriter( pj(cfg["session_dir"], "tensorboard") )
@@ -118,6 +125,7 @@ def train(m_gen, m_disc, train_loader, optimizers, cfg):
     num_batches = len(train_loader) // batch_size
     for epoch in range(cfg["num_epochs"]):
         for i,(real_x,_) in enumerate(train_loader):
+            batch_size = real_x.shape[0]
             real_labels = torch.ones(batch_size)
             fake_labels = torch.zeros(batch_size)
             if cudev >= 0:
@@ -128,17 +136,28 @@ def train(m_gen, m_disc, train_loader, optimizers, cfg):
                     torch.zeros(batch_size))).cuda(cudev)
             z = z_sampler(batch_size, cfg["z_dim"], cudev)
 
+            if epoch==0 and i==0:
+                m_gen._debug = True
+                m_gen._debug = True
+            else:
+                m_disc._debug = False
+                m_disc._debug = False
+
             optD.zero_grad()
+            d_real_loss = d_criterion(m_disc(real_x).view(-1), real_labels)
+            d_real_loss.backward()
             fake_x = m_gen(z)
-            d_fake_loss = d_criterion(m_disc(fake_x), fake_labels)
-            d_real_loss = d_criterion(m_disc(real_x), real_labels)
+            d_fake_loss = d_criterion(m_disc(fake_x.detach()).view(-1),
+                    fake_labels)
+            d_fake_loss.backward()
             d_loss = d_fake_loss + d_real_loss
 
-            d_loss.backward(retain_graph=True)
+#            d_loss.backward(retain_graph=True)
             optD.step()
 
             optG.zero_grad()
-            g_loss = g_criterion(m_disc(fake_x))
+#            g_loss = g_criterion(m_disc(fake_x))
+            g_loss = g_criterion(m_disc(fake_x).view(-1), fake_labels)
             g_loss.backward()
             optG.step()
 
@@ -146,6 +165,9 @@ def train(m_gen, m_disc, train_loader, optimizers, cfg):
                 "Discriminator/Real" : d_real_loss.item(),
                 "Discriminator/Fake" : d_fake_loss.item()}, epoch*num_batches+1)
 
+            if i%99 == 0:
+                logging.info("Epoch %d: GLoss: %.4f, DLossReal: %.4f, DLossFake: %.4f" \
+                        % (epoch, g_loss.item(), d_real_loss.item(),d_fake_loss.item()))
         logging.info("Epoch %d: GLoss: %.4f, DLossReal: %.4f, DLossFake: %.4f" \
                 % (epoch, g_loss.item(), d_real_loss.item(),d_fake_loss.item()))
             
@@ -177,11 +199,19 @@ def z_sampler(batch_size, z_dim, cudev):
 def main(args):
     cfg = vars(args)
     cfg["session_dir"] = create_session_dir("./sessions")
+    init_session_log(cfg)
     m_gen = Generator(z_dim=cfg["z_dim"], num_layers=cfg["num_layers"],
-            num_base_chans=cfg["num_base_chans"])
+            num_base_chans=cfg["num_base_chans"]//2)
     m_disc = Discriminator(num_base_chans=cfg["num_base_chans"],
             num_layers=cfg["num_layers"]-1)
-    init_session_log(cfg, "w")
+    print(m_gen)
+    print(m_disc)
+    logging.info("Generator:\n")
+    logging.info(str(m_gen))
+    logging.info("\n\n")
+    logging.info("Discriminator:\n")
+    logging.info(str(m_disc))
+    logging.info("\n\n")
     train_loader = get_loader(cfg)
     make_first_batch(train_loader, cfg)
 
@@ -192,10 +222,9 @@ def main(args):
         m_gen.cuda(cudev)
         m_disc.cuda(cudev)
 
-    optD = torch.optim.Adam(m_disc.parameters(), lr=cfg["lr_d"],
-            betas=(0.5, 0.999))
-    optG = torch.optim.Adam(m_gen.parameters(), lr=cfg["lr_g"],
-            betas=(0.5, 0.999))
+    betas = (cfg["beta1"], cfg["beta2"])
+    optD = torch.optim.Adam(m_disc.parameters(), lr=cfg["lr_d"], betas=betas)
+    optG = torch.optim.Adam(m_gen.parameters(), lr=cfg["lr_g"], betas=betas)
 
     train(m_gen, m_disc, train_loader, (optD,optG), cfg)
 
@@ -208,19 +237,23 @@ if __name__ == "__main__":
 
     # Model
     parser.add_argument("--num-layers", type=int, default=5)
-    parser.add_argument("--num-base-chans", type=int, default=32)
+    parser.add_argument("--num-base-chans", type=int, default=64)
     parser.add_argument("--z-dim", type=int, default=100,
         help="Number of latent space units")
 
     # Training
-    parser.add_argument("--lr-d", type=float, default=0.0001,
+    parser.add_argument("--lr-d", type=float, default=0.0002,
             help="Model learning rate")
-    parser.add_argument("--lr-g", type=float, default=0.001,
+    parser.add_argument("--lr-g", type=float, default=0.0002,
             help="Model learning rate")
+    parser.add_argument("--beta1", type=float, default=0.5,
+            help="beta1 parameter for the Adam optimizer")
+    parser.add_argument("--beta2", type=float, default=0.999,
+            help="beta2 parameter for the Adam optimizer")
     parser.add_argument("--momentum", type=float, default=0.9,
             help="Momentum parameter for the SGD optimizer")
     parser.add_argument("--num-epochs", type=int, default=100)
-    parser.add_argument("--batch-size", type=int, default=32)
+    parser.add_argument("--batch-size", type=int, default=128)
 
     # Hardware/OS
     parser.add_argument("--cuda", type=int, default=0,

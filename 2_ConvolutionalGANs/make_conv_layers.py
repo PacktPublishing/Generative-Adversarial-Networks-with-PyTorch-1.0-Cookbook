@@ -3,6 +3,7 @@ This module comprises a stack of convolutional layers of arbitrary depth
 """
 
 import argparse
+import logging
 import os
 
 import torch
@@ -13,8 +14,9 @@ import torchvision as tv
 
 class ConvLayers(nn.Module):
     def __init__(self, num_layers=4, num_base_chans=16, kernel_size=4,
-            stride=2, is_transpose=False):
+            stride=2, is_transpose=False, debug=False):
         super().__init__()
+        self._debug = debug
         self._is_transpose = is_transpose
         self._kernel_size = kernel_size
         self._layers = None
@@ -25,6 +27,12 @@ class ConvLayers(nn.Module):
         self._layers = self._make_layers()
 
     def forward(self, x):
+        if self._debug:
+            for i,layer in enumerate(self._layers):
+                logging.info("Layer %d shape in: %s" % (i, x.shape))
+                x = layer(x)
+                logging.info("\tshape out: %s" % repr(x.shape))
+            return x
         return self._layers(x)
 
     def _make_layers(self):
@@ -42,8 +50,9 @@ class ConvLayers(nn.Module):
 
 class DeconvLayers(nn.Module):
     def __init__(self, num_layers=4, z_dim=100, num_base_chans=16,
-            kernel_size=4, stride=2):
+            kernel_size=4, stride=2, debug=False):
         super().__init__()
+        self._debug = debug
         self._kernel_size = kernel_size
         self._layers = None
         self._num_layers = num_layers
@@ -54,6 +63,12 @@ class DeconvLayers(nn.Module):
         self._layers = self._make_layers()
 
     def forward(self, x):
+        if self._debug:
+            for i,layer in enumerate(self._layers):
+                logging.info("Layer %d shape in: %s" % (i, x.shape))
+                x = layer(x)
+                logging.info("\tshape out: %s" % repr(x.shape))
+            return x
         return self._layers(x)
 
     def _make_layers(self):
@@ -69,8 +84,9 @@ class DeconvLayers(nn.Module):
                 layers.append( nn.ConvTranspose2d(c_in, c_out,
                     kernel_size=self._kernel_size, padding=1,
                     stride=self._stride, bias=False) )
-            layers.append( nn.BatchNorm2d(c_out) )
-            layers.append( nn.ReLU(inplace=True) )
+            if i<self._num_layers - 1:
+                layers.append( nn.BatchNorm2d(c_out) )
+                layers.append( nn.ReLU(inplace=True) )
             c_in = c_out
             if i==self._num_layers - 2:
                 c_out = 3

@@ -65,31 +65,16 @@ class ImageFolder(Dataset):
 
 def get_loader(cfg):
     train_transform = tv.transforms.Compose([
-        tv.transforms.Resize(32), # So this actually works with N=32
-        tv.transforms.CenterCrop(32),
-        tv.transforms.ToTensor(),
-        tv.transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+        tv.transforms.RandomHorizontalFlip(),
+        tv.transforms.ToTensor()
         ])
-    celeba_dataset = ImageFolder(pj("/home/matt/Datasets/celebA/celebA"), transform=train_transform,
-            ext=".jpg")
-    train_loader = DataLoader(dataset=celeba_dataset,
-#    train_loader = DataLoader(\
-#            tv.datasets.CIFAR10("data", train=True, download=True,
-#                transform=train_transform),
+    train_loader = DataLoader(\
+            tv.datasets.CIFAR10("data", train=True, download=True,
+                transform=train_transform),
             batch_size=cfg["batch_size"],
             shuffle=True,
             num_workers=cfg["num_workers"])
     return train_loader
-
-def make_first_batch(train_loader, cfg):
-    fb_dir = pj(cfg["session_dir"], "first_batch")
-    os.makedirs(fb_dir)
-    cudev = cfg["cuda"]
-    for real_x,_ in train_loader:
-        if cudev >= 0:
-            real_x = real_x.cuda(cudev)
-        break
-    tv.utils.save_image(real_x, pj(fb_dir, "first_batch.png"))
 
 def save_sample_images(m_gen, epoch, cfg):
     z = z_sampler(cfg["batch_size"], cfg["z_dim"], cfg["cuda"])
@@ -187,7 +172,6 @@ def main(args):
     logging.info(str(m_disc))
     logging.info("\n\n")
     train_loader = get_loader(cfg)
-    make_first_batch(train_loader, cfg)
     cudev = cfg["cuda"]
     if cudev >= 0 and not torch.cuda.is_available():
         raise RuntimeError("CUDA device specified but CUDA not available")

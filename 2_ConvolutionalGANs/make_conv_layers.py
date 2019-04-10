@@ -28,6 +28,7 @@ class ConvLayers(nn.Module):
 
     def forward(self, x):
         if self._debug:
+            print("ConvLayers forward:")
             for i,layer in enumerate(self._layers):
                 logging.info("Layer %d shape in: %s" % (i, x.shape))
                 x = layer(x)
@@ -64,6 +65,7 @@ class DeconvLayers(nn.Module):
 
     def forward(self, x):
         if self._debug:
+            print("DeconvLayers forward:")
             for i,layer in enumerate(self._layers):
                 logging.info("Layer %d shape in: %s" % (i, x.shape))
                 x = layer(x)

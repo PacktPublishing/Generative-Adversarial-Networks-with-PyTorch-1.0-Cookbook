@@ -77,7 +77,8 @@ def get_loader(cfg):
        tv.transforms.Resize(input_size),
        tv.transforms.CenterCrop(input_size),
        tv.transforms.ToTensor(),
-       tv.transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)), ])
+       tv.transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+       ])
     celeba_dataset = ImageFolder(cfg["celeba_path"], transform=train_transform,
             ext=".jpg")
     train_loader = DataLoader(dataset=celeba_dataset,
@@ -136,36 +137,48 @@ def train(m_gen, m_disc, train_loader, optimizers, cfg):
                     torch.zeros(batch_size))).cuda(cudev)
             z = z_sampler(batch_size, cfg["z_dim"], cudev)
 
-            if epoch==0 and i==0:
+            if epoch==0 and i==0 and cfg["debug"]:
                 m_gen._debug = True
-                m_gen._debug = True
+                m_disc._debug = True
             else:
-                m_disc._debug = False
+                m_gen._debug = False
                 m_disc._debug = False
 
             optD.zero_grad()
-            d_real_loss = d_criterion(m_disc(real_x).view(-1), real_labels)
-            d_real_loss.backward()
             fake_x = m_gen(z)
-            d_fake_loss = d_criterion(m_disc(fake_x.detach()).view(-1),
-                    fake_labels)
-            d_fake_loss.backward()
+            d_fake_loss = d_criterion(m_disc(fake_x), fake_labels)
+            d_real_loss = d_criterion(m_disc(real_x), real_labels)
             d_loss = d_fake_loss + d_real_loss
 
-#            d_loss.backward(retain_graph=True)
+            d_loss.backward(retain_graph=True)
             optD.step()
 
             optG.zero_grad()
-#            g_loss = g_criterion(m_disc(fake_x))
-            g_loss = g_criterion(m_disc(fake_x).view(-1), fake_labels)
+            g_loss = g_criterion(m_disc(fake_x), real_labels)
             g_loss.backward()
             optG.step()
+
+#            m_disc.zero_grad()
+#            d_real_loss = d_criterion(m_disc(real_x).view(-1), real_labels)
+#            d_real_loss.backward()
+#
+#            fake_x = m_gen(z)
+#            d_fake_loss = d_criterion(m_disc(fake_x.detach()).view(-1),
+#                    fake_labels)
+#            d_fake_loss.backward()
+#            d_loss = d_fake_loss + d_real_loss
+#            optD.step()
+#
+#            m_gen.zero_grad()
+#            g_loss = g_criterion(m_disc(fake_x).view(-1), fake_labels)
+#            g_loss.backward()
+#            optG.step()
 
             writer.add_scalars("Loss", {"Generator" : g_loss.item(),
                 "Discriminator/Real" : d_real_loss.item(),
                 "Discriminator/Fake" : d_fake_loss.item()}, epoch*num_batches+1)
 
-            if i%99 == 0:
+            if i%1 == 0:
                 logging.info("Epoch %d: GLoss: %.4f, DLossReal: %.4f, DLossFake: %.4f" \
                         % (epoch, g_loss.item(), d_real_loss.item(),d_fake_loss.item()))
         logging.info("Epoch %d: GLoss: %.4f, DLossReal: %.4f, DLossFake: %.4f" \
@@ -202,10 +215,8 @@ def main(args):
     init_session_log(cfg)
     m_gen = Generator(z_dim=cfg["z_dim"], num_layers=cfg["num_layers"],
             num_base_chans=cfg["num_base_chans"]//2)
-    m_disc = Discriminator(num_base_chans=cfg["num_base_chans"],
+    m_disc = Discriminator(num_base_chans=cfg["num_base_chans"]//2,
             num_layers=cfg["num_layers"]-1)
-    print(m_gen)
-    print(m_disc)
     logging.info("Generator:\n")
     logging.info(str(m_gen))
     logging.info("\n\n")
@@ -254,6 +265,7 @@ if __name__ == "__main__":
             help="Momentum parameter for the SGD optimizer")
     parser.add_argument("--num-epochs", type=int, default=100)
     parser.add_argument("--batch-size", type=int, default=128)
+    parser.add_argument("--debug", action="store_true")
 
     # Hardware/OS
     parser.add_argument("--cuda", type=int, default=0,

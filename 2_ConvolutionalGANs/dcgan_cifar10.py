@@ -36,7 +36,6 @@ class Generator(DeconvLayers):
 class Discriminator(ConvLayers):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self._fc = None
         self._last_conv = None
 
         c_out = self._num_base_chans*( 2**(self._num_layers-1) ) * 4
@@ -49,18 +48,48 @@ class Discriminator(ConvLayers):
         x = torch.sigmoid(x)
         return x
 
+from torch.utils.data import Dataset
+from PIL import Image
+class ImageFolder(Dataset):
+    def __init__(self, data_path, transform=None, ext=".png"):
+        self._images = [pj(data_path,f) for f in os.listdir(data_path) \
+                if f.endswith(ext)]
+        self._transform = tv.transforms.ToTensor() if transform == None \
+                else transform
+
+    def __getitem__(self, index):
+        return self._transform( Image.open(self._images[index]) ), -1
+
+    def __len__(self):
+        return len(self._images)
+
 def get_loader(cfg):
     train_transform = tv.transforms.Compose([
-        tv.transforms.RandomHorizontalFlip(),
-        tv.transforms.ToTensor()
+        tv.transforms.Resize(32), # So this actually works with N=32
+        tv.transforms.CenterCrop(32),
+        tv.transforms.ToTensor(),
+        tv.transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
         ])
-    train_loader = DataLoader(
-            tv.datasets.CIFAR10("data", train=True, download=True,
-                transform=train_transform),
+    celeba_dataset = ImageFolder(pj("/home/matt/Datasets/celebA/celebA"), transform=train_transform,
+            ext=".jpg")
+    train_loader = DataLoader(dataset=celeba_dataset,
+#    train_loader = DataLoader(\
+#            tv.datasets.CIFAR10("data", train=True, download=True,
+#                transform=train_transform),
             batch_size=cfg["batch_size"],
             shuffle=True,
             num_workers=cfg["num_workers"])
     return train_loader
+
+def make_first_batch(train_loader, cfg):
+    fb_dir = pj(cfg["session_dir"], "first_batch")
+    os.makedirs(fb_dir)
+    cudev = cfg["cuda"]
+    for real_x,_ in train_loader:
+        if cudev >= 0:
+            real_x = real_x.cuda(cudev)
+        break
+    tv.utils.save_image(real_x, pj(fb_dir, "first_batch.png"))
 
 def save_sample_images(m_gen, epoch, cfg):
     z = z_sampler(cfg["batch_size"], cfg["z_dim"], cfg["cuda"])
@@ -148,10 +177,17 @@ def z_sampler(batch_size, z_dim, cudev):
 def main(args):
     cfg = vars(args)
     cfg["session_dir"] = create_session_dir("./sessions")
+    init_session_log(cfg, "w")
     m_gen = Generator(z_dim=cfg["z_dim"], num_layers=4, num_base_chans=32)
     m_disc = Discriminator(num_base_chans=32, num_layers=3)
-    init_session_log(cfg, "w")
+    logging.info("Generator:\n")
+    logging.info(str(m_gen))
+    logging.info("\n\n")
+    logging.info("Discriminator:\n")
+    logging.info(str(m_disc))
+    logging.info("\n\n")
     train_loader = get_loader(cfg)
+    make_first_batch(train_loader, cfg)
     cudev = cfg["cuda"]
     if cudev >= 0 and not torch.cuda.is_available():
         raise RuntimeError("CUDA device specified but CUDA not available")

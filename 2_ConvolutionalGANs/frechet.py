@@ -107,6 +107,8 @@ def feats_score(feats, splits):
     inc = feats.shape[0] // splits
     for i in range(splits):
         p = feats[ (i * inc) : ((i + 1) * inc), : ]
+        print(torch.min(p), torch.max(p), torch.median(p))
+        raise
         q = np.expand_dims(np.mean(p, axis=0), axis=0)
         kl_div = p * (np.log(p) - np.log(q))
         kl_div = np.mean(np.sum(kl_div, 1))

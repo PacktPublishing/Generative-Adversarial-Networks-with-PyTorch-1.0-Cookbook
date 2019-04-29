@@ -65,7 +65,7 @@ class DeconvLayers(nn.Module):
 
     def forward(self, x):
         if self._debug:
-            print("DeconvLayers forward:")
+            logging.info("DeconvLayers forward:")
             for i,layer in enumerate(self._layers):
                 logging.info("Layer %d shape in: %s" % (i, x.shape))
                 x = layer(x)
@@ -98,13 +98,15 @@ class DeconvLayers(nn.Module):
 
 
 def _test_main(args):
+    logging.basicConfig(level=logging.DEBUG)
     if args.test == "ConvLayers":
         print("Creating layers suitable for a Discriminator")
         net = ConvLayers(num_layers=args.num_layers,
                 num_base_chans=args.num_base_chans,
                 kernel_size=args.kernel_size,
                 stride=args.stride,
-                is_transpose=args.is_transpose)
+                is_transpose=args.is_transpose,
+                debug=True)
         sz = args.test_input_size
         x = torch.FloatTensor(1, 3, sz, sz).normal_(0,1)
     else:
@@ -113,7 +115,8 @@ def _test_main(args):
                 num_base_chans=args.num_base_chans,
                 z_dim=args.z_dim,
                 kernel_size=args.kernel_size,
-                stride=args.stride)
+                stride=args.stride,
+                debug=True)
         x = torch.FloatTensor(1, args.z_dim, 1, 1).normal_(0,1)
     print(net)
     print("Input shape: %s" % repr(x.shape))

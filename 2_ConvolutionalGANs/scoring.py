@@ -24,10 +24,17 @@ pj = os.path.join
 
 
 class ImageFolder(Dataset):
-    def __init__(self, data_path, ext=".png"):
+    def __init__(self, data_path, max_N=-1, ext=".png"):
         self._images = [pj(data_path,f) for f in os.listdir(data_path) \
                 if f.endswith(ext)]
-        self._transform = tv.transforms.ToTensor()
+        if max_N > 0:
+            self._images = self._images[:max_N]
+            np.random.shuffle(self._images)
+#        self._transform = tv.transforms.ToTensor()
+        self._transform = tv.transforms.Compose([
+            tv.transforms.Resize(299),
+            tv.transforms.ToTensor()
+            ])
 
     def __getitem__(self, index):
         return self._transform( Image.open(self._images[index]) ), -1
@@ -74,9 +81,6 @@ class InceptionV3(nn.Module):
 
 
 def calculate_fid(cfg):
-    cudev = cfg["cuda"]
-    if cudev >= 0:
-        model.cuda(cudev)
     m1,cov1 = get_mean_and_cov(cfg["dataset_1"], cfg)
     m2,cov2 = get_mean_and_cov(cfg["dataset_2"], cfg)
     fid_value = calculate_frechet(m1, cov1, m2, cov2)
@@ -90,9 +94,9 @@ def calculate_frechet(mu1, cov1, mu2, cov2):
     return frechet
 
 def calculate_inc_score(cfg):
-    feats = get_feats(cfg["dataset_1"], cfg)
-    feats = feats[:,:1000]
-    feats = np.exp(feats) / np.sum(np.exp(feats), 1, keepdims=True)
+#    feats = get_feats(cfg["dataset_1"], cfg)[:, :1000]
+    feats = np.exp( get_feats(cfg["dataset_1"], cfg)[:, :1000] )
+    feats = feats / np.sum(feats, 1, keepdims=True)
     mean,std = feats_score(feats, cfg["inc_score_splits"])
     return mean,std
     
@@ -117,8 +121,11 @@ def feats_score(feats, splits):
 def get_feats(path, cfg):
     print("Getting Inception V3 model...")
     model = InceptionV3()
+    cudev = cfg["cuda"]
+    if cudev >= 0:
+        model.cuda(cudev)
     print("...Done")
-    dataset = ImageFolder(path, ext=cfg["ext"])
+    dataset = ImageFolder(path, max_N=cfg["max_N"], ext=cfg["ext"])
     data_loader = DataLoader(dataset, batch_size=cfg["batch_size"],
             num_workers=cfg["num_workers"], shuffle=False)
     print("Generating features...")
@@ -163,6 +170,7 @@ if __name__ == "__main__":
     parser.add_argument("--incep-feat-dim", type=int, default=2048,
             help="Size of Inception feature vectors to use")
     parser.add_argument("--inc-score-splits", type=int, default=10)
+    parser.add_argument("--max-N", type=int, default=-1)
     args = parser.parse_args()
     main(args)
 

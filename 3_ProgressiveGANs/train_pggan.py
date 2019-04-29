@@ -90,7 +90,7 @@ def make_first_batch(data_loader, cfg):
         if cudev >= 0:
             real_x = real_x.cuda(cudev)
         break
-    sz = real_x.shape(2)
+    sz = real_x.shape[2]
     tv.utils.save_image(real_x, pj(fb_dir, "first_real_batch_%03d.png" % sz))
 
 def save_sample_images(m_gen, epoch, cfg):
@@ -102,10 +102,33 @@ def save_sample_images(m_gen, epoch, cfg):
         os.makedirs(samples_dir)
     tv.utils.save_image(xhat, pj(samples_dir,"%03d.png" % epoch))
 
-def train(optimizers, cfg):
+def train(cfg):
     cudev = cfg["cuda"]
+    if cudev >= 0 and not torch.cuda.is_available():
+        raise RuntimeError("CUDA device specified but CUDA not available")
     batch_size = cfg["batch_size"]
-    optD,optG = optimizers
+
+    num_layers = 2
+    m_gen = Generator(z_dim=cfg["z_dim"], num_layers=num_layers,
+            num_base_chans=cfg["num_base_chans"])
+    m_disc = Discriminator(num_base_chans=cfg["num_base_chans"],
+            num_layers=num_layers-1)
+    if cudev >= 0:
+        m_gen.cuda(cudev)
+        m_disc.cuda(cudev)
+    logging.info("Generator:\n")
+    logging.info(str(m_gen))
+    logging.info("\n\n")
+    logging.info("Discriminator:\n")
+    logging.info(str(m_disc))
+    logging.info("Scale: 0")
+    logging.info("\n\n")
+
+    betas = (cfg["beta1"], cfg["beta2"])
+    optD = torch.optim.Adam(m_disc.parameters(), lr=cfg["lr_d"], betas=betas,
+            eps=cfg["epsilon"])
+    optG = torch.optim.Adam(m_gen.parameters(), lr=cfg["lr_g"], betas=betas,
+            eps=cfg["epsilon"])
     eps = 1e-6
     d_criterion = nn.BCELoss()
     g_criterion = nn.BCELoss()
@@ -117,21 +140,9 @@ def train(optimizers, cfg):
 
     epochs_by_scale = [10, 10, 10, 10, 10]
     num_scales = len(epochs_by_scale)
-    for scale_i in range(len(num_scales)):
+    for scale_i in range(num_scales):
         print("############# New scale #############")
         if scale_i == 0:
-            num_layers = 2
-            m_gen = Generator(z_dim=cfg["z_dim"], num_layers=num_layers,
-                    num_base_chans=cfg["num_base_chans"])
-            m_disc = Discriminator(num_base_chans=cfg["num_base_chans"],
-                    num_layers=num_layers-1)
-            logging.info("Generator:\n")
-            logging.info(str(m_gen))
-            logging.info("\n\n")
-            logging.info("Discriminator:\n")
-            logging.info(str(m_disc))
-            logging.info("Scale: %d\n" % scale_i)
-            logging.info("\n\n")
             m_gen.apply(weights_init)
             m_disc.apply(weights_init)
         else:
@@ -217,20 +228,7 @@ def main(args):
     cfg["session_dir"] = create_session_dir("./sessions")
     init_session_log(cfg)
 
-    cudev = cfg["cuda"]
-    if cudev >= 0 and not torch.cuda.is_available():
-        raise RuntimeError("CUDA device specified but CUDA not available")
-    if cudev >= 0:
-        m_gen.cuda(cudev)
-        m_disc.cuda(cudev)
-
-    betas = (cfg["beta1"], cfg["beta2"])
-    optD = torch.optim.Adam(m_disc.parameters(), lr=cfg["lr_d"], betas=betas,
-            eps=cfg["epsilon"])
-    optG = torch.optim.Adam(m_gen.parameters(), lr=cfg["lr_g"], betas=betas,
-            eps=cfg["epsilon"])
-
-    train((optD,optG), cfg)
+    train(cfg)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

@@ -84,7 +84,8 @@ def get_loader(num_layers, cfg):
 
 def make_first_batch(data_loader, cfg):
     fb_dir = pj(cfg["session_dir"], "first_batch")
-    os.makedirs(fb_dir)
+    if not pe(fb_dir):
+        os.makedirs(fb_dir)
     cudev = cfg["cuda"]
     for real_x,_ in data_loader:
         if cudev >= 0:
@@ -138,7 +139,8 @@ def train(cfg):
     models_dir = pj(cfg["session_dir"], "models")
     if not pe(models_dir): os.makedirs(models_dir)
 
-    epochs_by_scale = [10, 10, 10, 10, 10]
+#    epochs_by_scale = [10, 10, 10, 10, 10]
+    epochs_by_scale = [1, 1, 1, 1, 1]
     num_scales = len(epochs_by_scale)
     for scale_i in range(num_scales):
         print("############# New scale #############")
@@ -148,6 +150,9 @@ def train(cfg):
         else:
             m_gen.add_layer()
             m_disc.add_layer()
+            if cudev >= 0:
+                m_gen.cuda(cudev)
+                m_disc.cuda(cudev)
 
         data_loader = get_loader(num_layers, cfg)
         make_first_batch(data_loader, cfg)
@@ -157,6 +162,7 @@ def train(cfg):
         for epoch in range(num_epochs):
             alpha = (scale_i + 1) / num_epochs
             for i,(real_x,_) in enumerate(data_loader):
+                if i>=10: continue
                 batch_size = real_x.shape[0]
                 real_labels = torch.ones(batch_size)
                 fake_labels = torch.zeros(batch_size)
@@ -230,8 +236,49 @@ def main(args):
 
     train(cfg)
 
+def _test_models(args):
+    cfg = vars(args)
+    cudev = cfg["cuda"]
+    num_layers = 2
+    if cfg["test_model"] == "Discriminator" or cfg["test_model"] == "Disc":
+        print("Creating layers suitable for a Discriminator")
+        net = Discriminator(num_base_chans=cfg["num_base_chans"],
+                num_layers=num_layers-1, debug=True)
+        sz = cfg["test_input_size"]
+        x = torch.FloatTensor(1, 3, sz, sz).normal_(0,1)
+    else:
+        print("Creating layers suitable for a Generator")
+        net = Generator(z_dim=cfg["z_dim"], num_layers=num_layers,
+                num_base_chans=cfg["num_base_chans"], debug=True)
+        x = torch.FloatTensor(1, cfg["z_dim"], 1, 1).normal_(0,1)
+    if cudev>=0:
+        net = net.cuda(cudev)
+        x = x.cuda(cudev)
+    print(net)
+    print("Input shape: %s" % repr(x.shape))
+    y = net(x)
+    print("Output shape: %s" % repr(y.shape))
+
+    for _ in range(3):
+        net.add_layer()
+        print(net)
+        if cfg["test_model"] == "Discriminator" or cfg["test_model"] == "Disc":
+            sz = x.shape[2] * 2
+            x = torch.FloatTensor(1,3,sz,sz).normal_(0,1)
+        if cudev>=0:
+            net = net.cuda(cudev)
+            x = x.cuda(cudev)
+        print("Input shape: %s" % repr(x.shape))
+        y = net(x)
+        print("Output shape: %s" % repr(y.shape))
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
+
+    # Test models
+    parser.add_argument("--test-model", type=str, default=None,
+            choices=["Gen", "Generator", "Disc", "Discriminator", None])
+    parser.add_argument("--test-input-size", type=int, default=8)
 
     # Dataset
     parser.add_argument("--celeba-path", type=str,
@@ -267,4 +314,8 @@ if __name__ == "__main__":
         help="Number of worker threads to use loading data")
 
     args = parser.parse_args()
-    main(args)
+    if args.test_model is not None:
+        _test_models(args)
+    else:
+        main(args)
+

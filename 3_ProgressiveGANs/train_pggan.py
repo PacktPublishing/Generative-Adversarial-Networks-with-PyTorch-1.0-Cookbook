@@ -5,6 +5,7 @@ generate images accordingly.
 
 import argparse
 import logging
+import numpy as np
 import os
 import sys
 from PIL import Image
@@ -63,7 +64,7 @@ class ImageFolder(Dataset):
         return len(self._images)
 
 
-def get_loader(num_layers, cfg):
+def get_loader(num_layers, batch_size, cfg):
     input_size = 2**(num_layers + 1)
     print("Input size: %d" % input_size)
     train_transform = tv.transforms.Compose([
@@ -77,7 +78,7 @@ def get_loader(num_layers, cfg):
     celeba_dataset = ImageFolder(cfg["celeba_path"], transform=train_transform,
             ext=".jpg")
     train_loader = DataLoader(dataset=celeba_dataset,
-            batch_size=cfg["batch_size"],
+            batch_size=batch_size,
             shuffle=True,
             num_workers=cfg["num_workers"])
     return train_loader
@@ -91,6 +92,7 @@ def make_first_batch(data_loader, cfg):
         if cudev >= 0:
             real_x = real_x.cuda(cudev)
         break
+    real_x = real_x[:32]
     sz = real_x.shape[2]
     tv.utils.save_image(real_x, pj(fb_dir, "first_real_batch_%03d.png" % sz))
 
@@ -107,7 +109,6 @@ def train(cfg):
     cudev = cfg["cuda"]
     if cudev >= 0 and not torch.cuda.is_available():
         raise RuntimeError("CUDA device specified but CUDA not available")
-    batch_size = cfg["batch_size"]
 
     num_layers = 2
     m_gen = Generator(z_dim=cfg["z_dim"], num_layers=num_layers,
@@ -139,8 +140,7 @@ def train(cfg):
     models_dir = pj(cfg["session_dir"], "models")
     if not pe(models_dir): os.makedirs(models_dir)
 
-#    epochs_by_scale = [10, 10, 10, 10, 10]
-    epochs_by_scale = [1, 1, 1, 1, 1]
+    epochs_by_scale = np.ones(5).astype(int) * cfg["num_epochs"]
     num_scales = len(epochs_by_scale)
     for scale_i in range(num_scales):
         print("############# New scale #############")
@@ -153,8 +153,10 @@ def train(cfg):
             if cudev >= 0:
                 m_gen.cuda(cudev)
                 m_disc.cuda(cudev)
+            num_layers += 1
 
-        data_loader = get_loader(num_layers, cfg)
+        batch_size = cfg["final_batch_size"] * 2**(num_scales-scale_i-1)
+        data_loader = get_loader(num_layers, batch_size, cfg)
         make_first_batch(data_loader, cfg)
         num_batches = len(data_loader) // batch_size
 
@@ -162,7 +164,6 @@ def train(cfg):
         for epoch in range(num_epochs):
             alpha = (scale_i + 1) / num_epochs
             for i,(real_x,_) in enumerate(data_loader):
-                if i>=10: continue
                 batch_size = real_x.shape[0]
                 real_labels = torch.ones(batch_size)
                 fake_labels = torch.zeros(batch_size)
@@ -303,8 +304,8 @@ if __name__ == "__main__":
             help="epsilon parameter for the Adam optimizer")
     parser.add_argument("--momentum", type=float, default=0.9,
             help="Momentum parameter for the SGD optimizer")
-    parser.add_argument("--num-epochs", type=int, default=100)
-    parser.add_argument("--batch-size", type=int, default=128)
+    parser.add_argument("--num-epochs", type=int, default=5)
+    parser.add_argument("--final-batch-size", type=int, default=128)
     parser.add_argument("--debug", action="store_true")
 
     # Hardware/OS

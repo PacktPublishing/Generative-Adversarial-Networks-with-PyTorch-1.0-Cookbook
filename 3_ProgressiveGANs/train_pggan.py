@@ -96,14 +96,14 @@ def make_first_batch(data_loader, cfg):
     sz = real_x.shape[2]
     tv.utils.save_image(real_x, pj(fb_dir, "first_real_batch_%03d.png" % sz))
 
-def save_sample_images(m_gen, epoch, cfg):
+def save_sample_images(m_gen, scale_i, epoch, cfg):
     z = z_sampler(32, cfg["z_dim"], cfg["cuda"])
     xhat = m_gen(z)
     xhat = F.interpolate(xhat, scale_factor=(5.0, 5.0))
     samples_dir = pj(cfg["session_dir"], "samples")
     if not pe(samples_dir):
         os.makedirs(samples_dir)
-    tv.utils.save_image(xhat, pj(samples_dir,"%03d.png" % epoch))
+    tv.utils.save_image(xhat, pj(samples_dir,"%d_%03d.png" % (scale_i, epoch)))
 
 def train(cfg):
     cudev = cfg["cuda"]
@@ -161,9 +161,14 @@ def train(cfg):
         num_batches = len(data_loader) // batch_size
 
         num_epochs = epochs_by_scale[scale_i]
+        batches_in_scale = len(data_loader) * num_epochs
+        global_ct = 0
         for epoch in range(num_epochs):
-            alpha = (scale_i + 1) / num_epochs
             for i,(real_x,_) in enumerate(data_loader):
+                alpha = global_ct / batches_in_scale
+                global_ct += 1
+                m_gen.set_alpha(alpha)
+                m_disc.set_alpha(alpha)
                 batch_size = real_x.shape[0]
                 real_labels = torch.ones(batch_size)
                 fake_labels = torch.zeros(batch_size)
@@ -201,11 +206,14 @@ def train(cfg):
                     "Discriminator/Fake" : d_fake_loss.item()},
                     epoch*num_batches+1)
 
+#                if global_ct-1 % 10 == 0:
+                print("Alpha: %f" % alpha)
+
             logging.info("Epoch %d: GLoss: %.4f, DLossReal: %.4f, DLossFake: " \
                     "%.4f" % (epoch, g_loss.item(), d_real_loss.item(),
                         d_fake_loss.item()))
                 
-            save_sample_images(m_gen, epoch, cfg)
+            save_sample_images(m_gen, scale_i, epoch, cfg)
             torch.save(m_gen.state_dict(), pj(models_dir, "generator_%04d.pkl" \
                     % (epoch)))
             torch.save(m_disc.state_dict(), pj(models_dir,
@@ -305,7 +313,7 @@ if __name__ == "__main__":
     parser.add_argument("--momentum", type=float, default=0.9,
             help="Momentum parameter for the SGD optimizer")
     parser.add_argument("--num-epochs", type=int, default=5)
-    parser.add_argument("--final-batch-size", type=int, default=128)
+    parser.add_argument("--final-batch-size", type=int, default=256)
     parser.add_argument("--debug", action="store_true")
 
     # Hardware/OS

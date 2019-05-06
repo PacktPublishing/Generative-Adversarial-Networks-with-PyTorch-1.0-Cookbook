@@ -32,6 +32,7 @@ class ConvLayers(ProgNet):
     def __init__(self, num_layers=4, num_base_chans=16, kernel_size=4,
             stride=2, is_transpose=False, debug=False):
         super().__init__()
+        self._avg_pool = nn.AvgPool2d(2)
         self._debug = debug
         self._is_transpose = is_transpose
         self._kernel_size = kernel_size
@@ -44,6 +45,9 @@ class ConvLayers(ProgNet):
 
     def add_layer(self):
         self._transition_layer = self._layers[0]
+        for p in self._transition_layer.parameters():
+            p.requires_grad = False
+
         old_layers = self._layers[1:]
         c_in = old_layers[0].in_channels // 2
         c_out = old_layers[0].in_channels
@@ -65,8 +69,7 @@ class ConvLayers(ProgNet):
     def forward(self, x):
         if self._debug: print("ConvLayers forward:")
         if self._transition_layer is not None:
-            sz = x.shape[2] // 2
-            tx = F.interpolate(x, size=(sz,sz))
+            tx = self._avg_pool(x)
             tx = self._transition_layer(tx)
 
             for i,layer in enumerate( self._layers[:4] ):
@@ -76,7 +79,7 @@ class ConvLayers(ProgNet):
                 if self._debug:
                     logging.info("\tshape out: %s" % repr(x.shape))
 
-            x = self._alpha*tx + (1-self._alpha)*x
+            x = (1.0 - self._alpha)*tx + self._alpha*x
 
             for layer in self._layers[4:]:
                 if self._debug:
@@ -127,6 +130,9 @@ class DeconvLayers(ProgNet):
 
     def add_layer(self):
         self._transition_layer = self._layers[-1]
+        for p in self._transition_layer.parameters():
+            p.requires_grad = False
+
         self._layers = self._layers[:-1]
         c_in = self._layers[-1].in_channels // 2
         N = len(self._layers)
@@ -156,7 +162,7 @@ class DeconvLayers(ProgNet):
             tx = self._transition_layer(tx)
             for layer in self._layers[-4 : -1]:
                 x = layer(x)
-            x = self._alpha*tx + (1-self._alpha)*self._layers[-1](x)
+            x = (1.0 - self._alpha)*tx + self._alpha*self._layers[-1](x)
         else:
             for layer in self._layers[-4 : -1]:
                 x = layer(x)

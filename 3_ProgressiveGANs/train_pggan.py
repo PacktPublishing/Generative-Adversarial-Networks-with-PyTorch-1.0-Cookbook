@@ -41,12 +41,14 @@ class Discriminator(ConvLayers):
         self._last_conv = None
 
         c_out = self._num_base_chans*( 2**(self._num_layers-1) )
+        c_out += 1 # For minibatch std dev
         self._last_conv = nn.Conv2d(c_out, 1, kernel_size=self._kernel_size,
                 stride=1, padding=0)
 
-    def forward(self, x):
+    def forward(self, x, minibatch_sd):
         x = super().forward(x)
-        x = self._last_conv(x)
+        mbsd = torch.ones((x.shape[0],1,*x.shape[2:])) * minibatch_sd
+        x = self._last_conv( torch.cat((x,mbsd), dim=1) )
         x = torch.sigmoid(x)
         return x
 
@@ -95,6 +97,10 @@ def make_first_batch(data_loader, cfg):
     real_x = real_x[:32]
     sz = real_x.shape[2]
     tv.utils.save_image(real_x, pj(fb_dir, "first_real_batch_%03d.png" % sz))
+
+def minibatch_std_dev(x):
+    sd = torch.std(x, dim=0)
+    return torch.mean(sd)
 
 def save_sample_images(m_gen, scale_i, epoch, cfg):
     z = z_sampler(32, cfg["z_dim"], cfg["cuda"])
@@ -179,6 +185,7 @@ def train(cfg):
                     labels = torch.cat((torch.ones(batch_size), 
                         torch.zeros(batch_size))).cuda(cudev)
                 z = z_sampler(batch_size, cfg["z_dim"], cudev)
+                real_std_dev = minibatch_std_dev(real_x)
 
                 if epoch==0 and i==0 and cfg["debug"]:
                     m_gen._debug = True
@@ -189,15 +196,19 @@ def train(cfg):
 
                 optD.zero_grad()
                 fake_x = m_gen(z)
-                d_fake_loss = d_criterion(m_disc(fake_x), fake_labels)
-                d_real_loss = d_criterion(m_disc(real_x), real_labels)
+                fake_std_dev = minibatch_std_dev(fake_x)
+                d_fake_loss = d_criterion(m_disc(fake_x, fake_std_dev),
+                        fake_labels)
+                d_real_loss = d_criterion(m_disc(real_x, real_std_dev),
+                        real_labels)
                 d_loss = d_fake_loss + d_real_loss
 
                 d_loss.backward(retain_graph=True)
                 optD.step()
 
                 optG.zero_grad()
-                g_loss = g_criterion(m_disc(fake_x), real_labels)
+                g_loss = g_criterion(m_disc(fake_x, fake_std_dev),
+                        real_labels)
                 g_loss.backward()
                 optG.step()
 

@@ -47,7 +47,7 @@ class Discriminator(ConvLayers):
 
     def forward(self, x, minibatch_sd):
         x = super().forward(x)
-        mbsd = torch.ones((x.shape[0],1,*x.shape[2:])) * minibatch_sd
+        mbsd = torch.ones((x.shape[0],1,*x.shape[2:])).to(x.device)*minibatch_sd
         x = self._last_conv( torch.cat((x,mbsd), dim=1) )
         x = torch.sigmoid(x)
         return x

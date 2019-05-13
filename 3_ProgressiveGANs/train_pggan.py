@@ -110,11 +110,11 @@ def train(cfg):
     if cudev >= 0 and not torch.cuda.is_available():
         raise RuntimeError("CUDA device specified but CUDA not available")
 
-    num_layers = 2
+    num_layers = 1
     m_gen = Generator(z_dim=cfg["z_dim"], num_layers=num_layers,
             num_base_chans=cfg["num_base_chans"])
     m_disc = Discriminator(num_base_chans=cfg["num_base_chans"],
-            num_layers=num_layers-1)
+            num_layers=num_layers)
     if cudev >= 0:
         m_gen.cuda(cudev)
         m_disc.cuda(cudev)
@@ -247,12 +247,14 @@ def main(args):
 
 def _test_models(args):
     cfg = vars(args)
+    cfg["session_dir"] = create_session_dir("../temp")
+    init_session_log(cfg)
     cudev = cfg["cuda"]
-    num_layers = 2
+    num_layers = 1
     if cfg["test_model"] == "Discriminator" or cfg["test_model"] == "Disc":
         print("Creating layers suitable for a Discriminator")
         net = Discriminator(num_base_chans=cfg["num_base_chans"],
-                num_layers=num_layers-1, debug=True)
+                num_layers=num_layers, debug=True)
         sz = cfg["test_input_size"]
         x = torch.FloatTensor(1, 3, sz, sz).normal_(0,1)
     else:
@@ -287,7 +289,7 @@ if __name__ == "__main__":
     # Test models
     parser.add_argument("--test-model", type=str, default=None,
             choices=["Gen", "Generator", "Disc", "Discriminator", None])
-    parser.add_argument("--test-input-size", type=int, default=8)
+    parser.add_argument("--test-input-size", type=int, default=4)
 
     # Dataset
     parser.add_argument("--celeba-path", type=str,

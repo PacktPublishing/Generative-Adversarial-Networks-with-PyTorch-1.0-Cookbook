@@ -64,6 +64,15 @@ class ImageFolder(Dataset):
         return len(self._images)
 
 
+def _write_model_arch(m_gen, m_disc, scale):
+    logging.info("Generator:\n")
+    logging.info(str(m_gen))
+    logging.info("\n\n")
+    logging.info("Discriminator:\n")
+    logging.info(str(m_disc))
+    logging.info("Scale: %d" % scale)
+    logging.info("\n\n")
+
 def get_loader(num_layers, batch_size, cfg):
     input_size = 2**(num_layers + 1)
     print("Input size: %d" % input_size)
@@ -111,20 +120,13 @@ def train(cfg):
         raise RuntimeError("CUDA device specified but CUDA not available")
 
     num_layers = 1
-    m_gen = Generator(z_dim=cfg["z_dim"], num_layers=num_layers,
-            num_base_chans=cfg["num_base_chans"])
+    m_gen = Generator(z_dim=cfg["z_dim"], batch_norm=True)
     m_disc = Discriminator(num_base_chans=cfg["num_base_chans"],
             num_layers=num_layers)
     if cudev >= 0:
         m_gen.cuda(cudev)
         m_disc.cuda(cudev)
-    logging.info("Generator:\n")
-    logging.info(str(m_gen))
-    logging.info("\n\n")
-    logging.info("Discriminator:\n")
-    logging.info(str(m_disc))
-    logging.info("Scale: 0")
-    logging.info("\n\n")
+    _write_model_arch(m_gen, m_disc, 0)
 
     betas = (cfg["beta1"], cfg["beta2"])
     optD = torch.optim.Adam(m_disc.parameters(), lr=cfg["lr_d"], betas=betas,
@@ -150,6 +152,7 @@ def train(cfg):
         else:
             m_gen.add_layer()
             m_disc.add_layer()
+            _write_model_arch(m_gen, m_disc, scale_i)
             if cudev >= 0:
                 m_gen.cuda(cudev)
                 m_disc.cuda(cudev)
@@ -259,8 +262,7 @@ def _test_models(args):
         x = torch.FloatTensor(1, 3, sz, sz).normal_(0,1)
     else:
         print("Creating layers suitable for a Generator")
-        net = Generator(z_dim=cfg["z_dim"], num_layers=num_layers,
-                num_base_chans=cfg["num_base_chans"], debug=True)
+        net = Generator(z_dim=cfg["z_dim"], batch_norm=True, debug=True)
         x = torch.FloatTensor(1, cfg["z_dim"], 1, 1).normal_(0,1)
     if cudev>=0:
         net = net.cuda(cudev)
@@ -298,6 +300,7 @@ if __name__ == "__main__":
     # Model
     parser.add_argument("--num-layers", type=int, default=6)
     parser.add_argument("--num-base-chans", type=int, default=32)
+    parser.add_argument("--num-max-chans", type=int, default=512)
     parser.add_argument("--z-dim", type=int, default=100,
         help="Number of latent space units")
 

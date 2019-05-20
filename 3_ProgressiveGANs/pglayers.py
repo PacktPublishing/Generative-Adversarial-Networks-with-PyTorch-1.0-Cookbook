@@ -123,14 +123,14 @@ class ConvLayers(ProgNet):
         return nn.Sequential( *layers )
 
 class DeconvLayers(ProgNet):
-    def __init__(self, num_layers=4, z_dim=100, num_base_chans=16,
-            kernel_size=4, stride=2, debug=False):
+    def __init__(self, z_dim=100, 
+            kernel_size=4, stride=2, batch_norm=False, debug=False):
         super().__init__()
+        self._batch_norm = batch_norm
+        self._current_channels = None
         self._debug = debug
         self._kernel_size = kernel_size
         self._layers = None
-        self._num_layers = num_layers
-        self._num_base_chans = num_base_chans
         self._stride = stride
         self._z_dim = z_dim
 
@@ -142,22 +142,42 @@ class DeconvLayers(ProgNet):
             p.requires_grad = False
 
         self._layers = self._layers[:-1]
-        c_in = self._layers[-1].out_channels
+        c_in = self._current_channels
         N = len(self._layers)
-        self._layers.add_module( str(N), nn.BatchNorm2d(c_in) )
-        self._layers.add_module( str(N+1), nn.ReLU(inplace=True) )
 
-        c_out = c_in // 2
-        self._layers.add_module( str(N+2), nn.ConvTranspose2d(c_in, c_out,
+        c_out = c_in // 2 # TODO Karras doesn't decimate until later
+        self._layers.add_module( str(N), nn.ConvTranspose2d(c_in, c_out,
             kernel_size=self._kernel_size, padding=1, stride=self._stride,
             bias=False) )
-        self._add_toRGB(self._layers, c_out)
-        self._num_layers += 3
+
+        ct = 1
+        self._layers.add_module( str(N+ct), nn.Conv2d(c_in, c_out,
+            kernel_size=self._kernel_size, padding=1, stride=self._stride,
+            bias=False) )
+        ct += 1
+        if self._batch_norm:
+            self._layers.add_module( str(N+ct), nn.BatchNorm2d(c_out) )
+            ct += 1
+        self._layers.add_module( str(N+ct), nn.ReLU(inplace=True) )
+        ct +=1
+
+        self._layers.add_module( str(N+ct), nn.Conv2d(c_in, c_out,
+            kernel_size=self._kernel_size, padding=1, stride=self._stride,
+            bias=False) )
+        ct += 1
+        if self._batch_norm:
+            self._layers.add_module( str(N+ct), nn.BatchNorm2d(c_out) )
+            ct += 1
+        self._layers.add_module( str(N+ct), nn.ReLU(inplace=True) )
+        ct +=1
+
+        self._layers.add_module( str(N+ct), self._get_toRGB(c_out) )
+        self._current_channels = c_out
 
     def forward(self, x):
         if self._debug: print("DeconvLayers forward:")
         if self._debug: logging.info("x shape: %s" % repr(x.shape))
-        for i,layer in enumerate(self._layers[:-4]):
+        for i,layer in enumerate(self._layers[:-2]):
             if self._debug: logging.info("Layer %d shape in: %s" % (i, x.shape))
             x = layer(x)
             if self._debug: logging.info("\tshape out: %s" % repr(x.shape))
@@ -169,7 +189,7 @@ class DeconvLayers(ProgNet):
             if self._debug: logging.info("tx shape: %s" % repr(tx.shape))
             tx = self._transition_layer(tx)
             if self._debug: logging.info("tx shape: %s" % repr(tx.shape))
-            for i,layer in enumerate( self._layers[-4 : -1] ):
+            for i,layer in enumerate( self._layers[-2 : -1] ):
                 if self._debug:
                     logging.info("Layer %d shape in: %s" % (N-4+i, x.shape))
                 x = layer(x)
@@ -188,32 +208,28 @@ class DeconvLayers(ProgNet):
 
         return x
 
-    def _add_toRGB(self, layers, c_in):
-        N = len(layers)
-        layers.add_module( str(N), nn.ConvTranspose2d(c_in, 3, 1, padding=0,
-            stride=1, bias=False) )
+    def _get_toRGB(self, c_in):
+        return nn.Conv2d(c_in, 3, 1, padding=0, stride=1, bias=False)
 
     def _make_layers(self):
         layers = []
         c_in = self._z_dim
-        c_out = self._num_base_chans * (2**(self._num_layers-1))
-        for i in range(self._num_layers):
-            if i==0:
-                layers.append( nn.ConvTranspose2d(c_in, c_out,
-                    kernel_size=self._kernel_size, padding=0, stride=1,
-                    bias=False) )
-            else:
-                layers.append( nn.ConvTranspose2d(c_in, c_out,
-                    kernel_size=self._kernel_size, padding=1,
-                    stride=self._stride, bias=False) )
-            if i<self._num_layers - 1: # TODO
-                layers.append( nn.BatchNorm2d(c_out) )
-                layers.append( nn.ReLU(inplace=True) )
-            c_in = c_out
-            c_out = c_out // 2
+        layers.append( nn.ConvTranspose2d(c_in, c_in,
+            kernel_size=self._kernel_size, padding=0, stride=1,
+            bias=False) )
+        if self._batch_norm:
+            layers.append( nn.BatchNorm2d(c_in) )
+        layers.append( nn.ReLU(inplace=True) )
 
+        layers.append( nn.Conv2d(c_in, c_in, kernel_size=3, padding=1, stride=1,
+            bias=False) )
+        if self._batch_norm:
+            layers.append( nn.BatchNorm2d(c_in) )
+        layers.append( nn.ReLU(inplace=True) )
+
+        layers.append( self._get_toRGB(c_in) )
         layers = nn.Sequential( *layers )
-        self._add_toRGB(layers, c_in)
+        self._current_channels = c_in
 
         return layers
 
@@ -233,10 +249,10 @@ def _test_main(args):
     else:
         print("Creating layers suitable for a Generator")
         net = DeconvLayers(num_layers=args.num_layers,
-                num_base_chans=args.num_base_chans,
                 z_dim=args.z_dim,
                 kernel_size=args.kernel_size,
                 stride=args.stride,
+                batch_norm=args.batch_norm,
                 debug=True)
         x = torch.FloatTensor(1, args.z_dim, 1, 1).normal_(0,1)
     print(net)
@@ -267,6 +283,7 @@ if __name__ == "__main__":
     parser.add_argument("--kernel-size", type=int, default=4)
     parser.add_argument("--stride", type=int, default=2)
     parser.add_argument("--is_transpose", action="store_true")
+    parser.add_argument("--batch-norm", action="store_true")
     parser.add_argument("--pg", "--progressive", dest="progressive",
             action="store_true")
     args = parser.parse_args()

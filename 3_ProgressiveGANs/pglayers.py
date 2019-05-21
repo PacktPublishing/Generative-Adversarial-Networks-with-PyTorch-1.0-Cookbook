@@ -131,6 +131,7 @@ class DeconvLayers(ProgNet):
         self._debug = debug
         self._kernel_size = kernel_size
         self._layers = None
+        self._prior_layer_ct = None
         self._stride = stride
         self._z_dim = z_dim
 
@@ -144,6 +145,7 @@ class DeconvLayers(ProgNet):
         self._layers = self._layers[:-1]
         c_in = self._current_channels
         N = len(self._layers)
+        self._prior_layer_ct = N
 
         c_out = c_in // 2 # TODO Karras doesn't decimate until later
         self._layers.add_module( str(N), nn.ConvTranspose2d(c_in, c_out,
@@ -151,9 +153,8 @@ class DeconvLayers(ProgNet):
             bias=False) )
 
         ct = 1
-        self._layers.add_module( str(N+ct), nn.Conv2d(c_in, c_out,
-            kernel_size=self._kernel_size, padding=1, stride=self._stride,
-            bias=False) )
+        self._layers.add_module( str(N+ct), nn.Conv2d(c_out, c_out,
+            kernel_size=3, padding=1, stride=1, bias=False) )
         ct += 1
         if self._batch_norm:
             self._layers.add_module( str(N+ct), nn.BatchNorm2d(c_out) )
@@ -161,9 +162,8 @@ class DeconvLayers(ProgNet):
         self._layers.add_module( str(N+ct), nn.ReLU(inplace=True) )
         ct +=1
 
-        self._layers.add_module( str(N+ct), nn.Conv2d(c_in, c_out,
-            kernel_size=self._kernel_size, padding=1, stride=self._stride,
-            bias=False) )
+        self._layers.add_module( str(N+ct), nn.Conv2d(c_out, c_out,
+            kernel_size=3, padding=1, stride=1, bias=False) )
         ct += 1
         if self._batch_norm:
             self._layers.add_module( str(N+ct), nn.BatchNorm2d(c_out) )
@@ -177,7 +177,7 @@ class DeconvLayers(ProgNet):
     def forward(self, x):
         if self._debug: print("DeconvLayers forward:")
         if self._debug: logging.info("x shape: %s" % repr(x.shape))
-        for i,layer in enumerate(self._layers[:-2]):
+        for i,layer in enumerate(self._layers[:self._prior_layer_ct]):
             if self._debug: logging.info("Layer %d shape in: %s" % (i, x.shape))
             x = layer(x)
             if self._debug: logging.info("\tshape out: %s" % repr(x.shape))
@@ -189,17 +189,19 @@ class DeconvLayers(ProgNet):
             if self._debug: logging.info("tx shape: %s" % repr(tx.shape))
             tx = self._transition_layer(tx)
             if self._debug: logging.info("tx shape: %s" % repr(tx.shape))
-            for i,layer in enumerate( self._layers[-2 : -1] ):
+            for i,layer in enumerate(self._layers[self._prior_layer_ct : -1]):
                 if self._debug:
-                    logging.info("Layer %d shape in: %s" % (N-4+i, x.shape))
+                    logging.info("Layer %d shape in: %s" \
+                            % (N-self._prior_layer_ct+i, x.shape))
                 x = layer(x)
                 if self._debug:
                     logging.info("\tshape out: %s" % repr(x.shape))
             x = (1.0 - self._alpha)*tx + self._alpha*self._layers[-1](x)
         else:
-            for i,layer in enumerate( self._layers[-4 : -1] ):
+            for i,layer in enumerate( self._layers[self._prior_layer_ct : -1] ):
                 if self._debug:
-                    logging.info("Layer %d shape in: %s" % (N-4+i, x.shape))
+                    logging.info("Layer %d shape in: %s" \
+                            % (N-self._prior_layer_ct+i, x.shape))
                 x = layer(x)
                 if self._debug:
                     logging.info("\tshape out: %s" % repr(x.shape))
@@ -207,6 +209,9 @@ class DeconvLayers(ProgNet):
         if self._debug: logging.info("Final x shape: %s" % repr(x.shape))
 
         return x
+
+    def _add_sublayer(self, c_in):
+        return ct
 
     def _get_toRGB(self, c_in):
         return nn.Conv2d(c_in, 3, 1, padding=0, stride=1, bias=False)
@@ -226,6 +231,7 @@ class DeconvLayers(ProgNet):
         if self._batch_norm:
             layers.append( nn.BatchNorm2d(c_in) )
         layers.append( nn.ReLU(inplace=True) )
+        self._prior_layer_ct = len(layers)
 
         layers.append( self._get_toRGB(c_in) )
         layers = nn.Sequential( *layers )

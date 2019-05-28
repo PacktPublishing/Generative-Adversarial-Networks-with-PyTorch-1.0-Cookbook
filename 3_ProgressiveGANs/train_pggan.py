@@ -40,9 +40,9 @@ class Discriminator(ConvLayers):
         super().__init__(**kwargs)
         self._last_conv = None
 
-        c_out = self._num_base_chans*( 2**(self._num_layers-1) )
-        self._last_conv = nn.Conv2d(c_out, 1, kernel_size=self._kernel_size,
-                stride=1, padding=0)
+        c_out = self.get_max_chans()
+        self._last_conv = nn.Conv2d(c_out, 1, kernel_size=1, stride=1,
+                padding=0)
 
     def forward(self, x):
         x = super().forward(x)
@@ -256,7 +256,8 @@ def _test_models(args):
     num_layers = 1
     if cfg["test_model"] == "Discriminator" or cfg["test_model"] == "Disc":
         print("Creating layers suitable for a Discriminator")
-        net = Discriminator(num_base_chans=cfg["num_base_chans"],
+        net = Discriminator(num_max_chans=cfg["num_max_chans"],
+                num_start_chans=16,
                 num_layers=num_layers, debug=True)
         sz = cfg["test_input_size"]
         x = torch.FloatTensor(1, 3, sz, sz).normal_(0,1)
@@ -299,9 +300,8 @@ if __name__ == "__main__":
 
     # Model
     parser.add_argument("--num-layers", type=int, default=6)
-    parser.add_argument("--num-base-chans", type=int, default=32)
     parser.add_argument("--num-max-chans", type=int, default=512)
-    parser.add_argument("--z-dim", type=int, default=100,
+    parser.add_argument("--z-dim", type=int, default=512,
         help="Number of latent space units")
 
     # Training

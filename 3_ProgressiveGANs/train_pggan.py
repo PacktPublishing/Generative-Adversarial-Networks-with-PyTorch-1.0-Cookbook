@@ -257,7 +257,6 @@ def _test_models(args):
     if cfg["test_model"] == "Discriminator" or cfg["test_model"] == "Disc":
         print("Creating layers suitable for a Discriminator")
         net = Discriminator(num_max_chans=cfg["num_max_chans"],
-                num_start_chans=16,
                 num_layers=num_layers, debug=True)
         sz = cfg["test_input_size"]
         x = torch.FloatTensor(1, 3, sz, sz).normal_(0,1)

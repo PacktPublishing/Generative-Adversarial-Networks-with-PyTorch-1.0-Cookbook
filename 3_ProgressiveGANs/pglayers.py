@@ -31,8 +31,8 @@ class ProgNet(nn.Module):
 
 
 class ConvLayers(ProgNet):
-    def __init__(self, num_layers=4, num_max_chans=512, num_start_chans=16,
-            kernel_size=3, stride=2, **kwargs):
+    def __init__(self, num_layers=4, num_max_chans=512, kernel_size=3,
+            stride=2, **kwargs):
         super().__init__(**kwargs)
         self._avg_pool = nn.AvgPool2d(2)
         self._current_channels = None
@@ -40,33 +40,58 @@ class ConvLayers(ProgNet):
         self._layers = None
         self._num_layers = num_layers
         self._num_max_chans = num_max_chans
-        self._num_start_chans = num_start_chans
         self._stride = stride
 
         self._layers = self._make_layers()
 
     def add_layer(self):
-        self._transition_layer = self._layers[0]
+        self._transition_layer = self._layers[:1]
         for p in self._transition_layer.parameters():
             p.requires_grad = False
 
         old_layers = self._layers[1:]
         N = len(old_layers)
-        c_in = self._current_channels
+        c_in = self._current_channels // 2
         c_out = c_in * 2
 
         ct = 0
         self._layers = nn.Sequential()
         self._layers.add_module( str(ct), self._get_fromRGB(c_in) )
+        ct += 1
 
-        self._layers.add_module( "1", nn.Conv2d(c_in, c_out,
-            kernel_size=self._kernel_size, padding=1, stride=self._stride,
+        self._layers.add_module( str(ct), nn.Conv2d(c_in, c_out,
+            kernel_size=self._kernel_size, padding=1, stride=1,
             bias=False) )
-        self._layers.add_module( "2", nn.BatchNorm2d(c_out) )
-        self._layers.add_module( "3", nn.ReLU(inplace=True) )
+        ct += 1
+        if self._batch_norm:
+            self._layers.add_module( str(ct), nn.BatchNorm2d(c_out) )
+            ct += 1
+        self._layers.add_module( str(ct), nn.ReLU(inplace=True) )
+        ct += 1
+
+        self._layers.add_module( str(ct), nn.Conv2d(c_out, c_out,
+            kernel_size=self._kernel_size, padding=1, stride=1,
+            bias=False) )
+        ct += 1
+        if self._batch_norm:
+            self._layers.add_module( str(ct), nn.BatchNorm2d(c_out) )
+            ct += 1
+        self._layers.add_module( str(ct), nn.ReLU(inplace=True) )
+        ct += 1
+
+        self._layers.add_module( str(ct), nn.Conv2d(c_out, c_out,
+            kernel_size=self._kernel_size, padding=1, stride=2,
+            bias=False) )
+        ct += 1
+        if self._batch_norm:
+            self._layers.add_module( str(ct), nn.BatchNorm2d(c_out) )
+            ct += 1
+        self._layers.add_module( str(ct), nn.ReLU(inplace=True) )
+        ct += 1
 
         for i in range(len(old_layers)):
-            self._layers.add_module( str(i+4), old_layers[i] )
+            self._layers.add_module( str(ct), old_layers[i] )
+            ct += 1
 
         self._current_channels = c_out
 
@@ -79,7 +104,8 @@ class ConvLayers(ProgNet):
             tx = self._transition_layer(tx)
             if self._debug: logging.info("tx shape: %s" % repr(tx.shape))
 
-            for i,layer in enumerate( self._layers[:4] ):
+            cut_layer = 10
+            for i,layer in enumerate( self._layers[:cut_layer] ):
                 if self._debug:
                     logging.info("Layer %d shape in: %s" % (i, x.shape))
                 x = layer(x)
@@ -88,9 +114,10 @@ class ConvLayers(ProgNet):
 
             x = (1.0 - self._alpha)*tx + self._alpha*x
 
-            for layer in self._layers[4:]:
+            for i,layer in enumerate( self._layers[cut_layer:] ):
                 if self._debug:
-                    logging.info("Layer %d shape in: %s" % (i, x.shape))
+                    logging.info("Layer %d shape in: %s" % (i+cut_layer,
+                        x.shape))
                 x = layer(x)
                 if self._debug:
                     logging.info("\tshape out: %s" % repr(x.shape))
@@ -110,31 +137,31 @@ class ConvLayers(ProgNet):
 
     def _make_layers(self):
         layers = []
-        start_chans = self._num_start_chans
-        layers.append( self._get_fromRGB(start_chans) )
+        c_out = self._num_max_chans
+        layers.append( self._get_fromRGB(c_out) )
 
-        c_in = self._num_start_chans
-#        c_out = self._num_max_chans
-#        layers.append( nn.Conv2d(c_in, c_out, kernel_size=1,
-#            padding=0, stride=1, bias=False) )
-#        if self._batch_norm:
-#            layers.append( nn.BatchNorm2d(c_out) )
-#
-#        c_in = self._num_max_chans
+        c_in = self._num_max_chans
         c_out = self._num_max_chans
         layers.append( nn.Conv2d(c_in, c_out, kernel_size=self._kernel_size,
-            padding=1, stride=self._stride, bias=False) )
+            padding=1, stride=1, bias=False) )
         if self._batch_norm:
             layers.append( nn.BatchNorm2d(c_out) )
         layers.append( nn.LeakyReLU(0.2) )
+
+        c_in = self._num_max_chans
+        c_out = self._num_max_chans
+        layers.append( nn.Conv2d(c_in, c_out, kernel_size=self._kernel_size,
+            padding=1, stride=1, bias=False) )
+        if self._batch_norm:
+            layers.append( nn.BatchNorm2d(c_out) )
         layers.append( nn.LeakyReLU(0.2) )
 
         c_in = c_out
         c_out = self._num_max_chans
-        layers.append( nn.Conv2d(c_in, c_out, kernel_size=4, #self._kernel_size,
+        layers.append( nn.Conv2d(c_in, c_out, kernel_size=4,
             padding=1, stride=self._stride, bias=False) )
         layers.append( nn.LeakyReLU(0.2) )
-        self._current_channels = self._num_start_chans
+        self._current_channels = self._num_max_chans
        
         return nn.Sequential( *layers )
 

@@ -46,7 +46,11 @@ class Discriminator(ConvLayers):
 
     def forward(self, x):
         x = super().forward(x)
+        logging.info("Disc.forward shape in: %s" % repr(x.shape))
         x = self._last_conv(x)
+        if self._debug:
+            logging.info("\tshape out: %s" % repr(x.shape))
+
         x = torch.sigmoid(x)
         return x
 
@@ -121,8 +125,7 @@ def train(cfg):
 
     num_layers = 1
     m_gen = Generator(z_dim=cfg["z_dim"], batch_norm=True)
-    m_disc = Discriminator(num_base_chans=cfg["num_base_chans"],
-            num_layers=num_layers)
+    m_disc = Discriminator(num_layers=num_layers)
     if cudev >= 0:
         m_gen.cuda(cudev)
         m_disc.cuda(cudev)
@@ -256,8 +259,7 @@ def _test_models(args):
     num_layers = 1
     if cfg["test_model"] == "Discriminator" or cfg["test_model"] == "Disc":
         print("Creating layers suitable for a Discriminator")
-        net = Discriminator(num_max_chans=cfg["num_max_chans"],
-                num_layers=num_layers, debug=True)
+        net = Discriminator(num_max_chans=cfg["num_max_chans"], debug=True)
         sz = cfg["test_input_size"]
         x = torch.FloatTensor(1, 3, sz, sz).normal_(0,1)
     else:

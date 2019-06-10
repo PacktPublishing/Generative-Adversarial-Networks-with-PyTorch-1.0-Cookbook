@@ -31,14 +31,13 @@ class ProgNet(nn.Module):
 
 
 class ConvLayers(ProgNet):
-    def __init__(self, num_layers=4, num_max_chans=512, kernel_size=3,
+    def __init__(self, num_max_chans=512, kernel_size=3,
             stride=2, **kwargs):
         super().__init__(**kwargs)
         self._avg_pool = nn.AvgPool2d(2)
         self._current_channels = None
         self._kernel_size = kernel_size
         self._layers = None
-        self._num_layers = num_layers
         self._num_max_chans = num_max_chans
         self._stride = stride
 
@@ -123,7 +122,7 @@ class ConvLayers(ProgNet):
                     logging.info("\tshape out: %s" % repr(x.shape))
         else:
             x = self._layers(x)
-        if self._debug: logging.info("Final x shape: %s" % repr(x.shape))
+        if self._debug: logging.info("Final x shape: %s\n" % repr(x.shape))
 
         return x
 
@@ -159,7 +158,7 @@ class ConvLayers(ProgNet):
         c_in = c_out
         c_out = self._num_max_chans
         layers.append( nn.Conv2d(c_in, c_out, kernel_size=4,
-            padding=1, stride=self._stride, bias=False) )
+            padding=0, stride=self._stride, bias=False) )
         layers.append( nn.LeakyReLU(0.2) )
         self._current_channels = self._num_max_chans
        
@@ -246,7 +245,7 @@ class DeconvLayers(ProgNet):
                 if self._debug:
                     logging.info("\tshape out: %s" % repr(x.shape))
             x = self._layers[-1](x)
-        if self._debug: logging.info("Final x shape: %s" % repr(x.shape))
+        if self._debug: logging.info("Final x shape: %s\n" % repr(x.shape))
 
         return x
 
@@ -284,8 +283,7 @@ def _test_main(args):
     logging.basicConfig(level=logging.DEBUG)
     if args.test == "ConvLayers":
         print("Creating layers suitable for a Discriminator")
-        net = ConvLayers(num_layers=cfg["num_layers"],
-                num_max_chans=cfg["num_max_chans"],
+        net = ConvLayers(num_max_chans=cfg["num_max_chans"],
                 kernel_size=cfg["kernel_size"],
                 stride=cfg["stride"],
                 debug=True)
@@ -293,8 +291,7 @@ def _test_main(args):
         x = torch.FloatTensor(1, 3, sz, sz).normal_(0,1)
     else:
         print("Creating layers suitable for a Generator")
-        net = DeconvLayers(num_layers=cfg["num_layers"],
-                z_dim=cfg["z_dim"],
+        net = DeconvLayers(z_dim=cfg["z_dim"],
                 kernel_size=cfg["kernel_size"],
                 stride=cfg["stride"],
                 batch_norm=cfg["batch_norm"],
@@ -320,7 +317,7 @@ def _test_main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--test", type=str, default="ConvLayers",
-            choices=["ConvLayers", "DeconvLayersi"])
+            choices=["ConvLayers", "DeconvLayers"])
     parser.add_argument("--test-input-size", type=int, default=64)
     parser.add_argument("--num-layers", type=int, default=4)
     parser.add_argument("--z-dim", type=int, default=100)

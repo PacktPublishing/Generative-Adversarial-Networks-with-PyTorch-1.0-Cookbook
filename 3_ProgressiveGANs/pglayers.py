@@ -36,6 +36,7 @@ class ConvLayers(ProgNet):
         super().__init__(**kwargs)
         self._avg_pool = nn.AvgPool2d(2)
         self._current_channels = None
+        self._cut_layer = None
         self._kernel_size = kernel_size
         self._layers = None
         self._num_max_chans = num_max_chans
@@ -86,13 +87,16 @@ class ConvLayers(ProgNet):
             self._layers.add_module( str(ct), nn.BatchNorm2d(c_out) )
             ct += 1
         self._layers.add_module( str(ct), nn.ReLU(inplace=True) )
+        self._cut_layer = ct
         ct += 1
 
+        if self._debug:
+            logging.info("Cut layer: %d" % self._cut_layer)
         for i in range(len(old_layers)):
             self._layers.add_module( str(ct), old_layers[i] )
             ct += 1
 
-        self._current_channels = c_out
+        self._current_channels = c_out // 2
 
     def forward(self, x):
         if self._debug: print("ConvLayers forward:")
@@ -103,8 +107,7 @@ class ConvLayers(ProgNet):
             tx = self._transition_layer(tx)
             if self._debug: logging.info("tx shape: %s" % repr(tx.shape))
 
-            cut_layer = 10
-            for i,layer in enumerate( self._layers[:cut_layer] ):
+            for i,layer in enumerate( self._layers[:self._cut_layer] ):
                 if self._debug:
                     logging.info("Layer %d shape in: %s" % (i, x.shape))
                 x = layer(x)
@@ -113,9 +116,9 @@ class ConvLayers(ProgNet):
 
             x = (1.0 - self._alpha)*tx + self._alpha*x
 
-            for i,layer in enumerate( self._layers[cut_layer:] ):
+            for i,layer in enumerate( self._layers[self._cut_layer:] ):
                 if self._debug:
-                    logging.info("Layer %d shape in: %s" % (i+cut_layer,
+                    logging.info("Layer %d shape in: %s" % (i+self._cut_layer,
                         x.shape))
                 x = layer(x)
                 if self._debug:

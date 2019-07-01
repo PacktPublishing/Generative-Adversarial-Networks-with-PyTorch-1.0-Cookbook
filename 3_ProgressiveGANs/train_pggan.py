@@ -46,7 +46,8 @@ class Discriminator(ConvLayers):
 
     def forward(self, x):
         x = super().forward(x)
-        logging.info("Disc.forward shape in: %s" % repr(x.shape))
+        if self._debug:
+            logging.info("Disc.forward shape in: %s" % repr(x.shape))
         x = self._last_conv(x)
         if self._debug:
             logging.info("\tshape out: %s" % repr(x.shape))
@@ -125,7 +126,7 @@ def train(cfg):
 
     num_layers = 1
     m_gen = Generator(z_dim=cfg["z_dim"], batch_norm=True)
-    m_disc = Discriminator(num_layers=num_layers)
+    m_disc = Discriminator(num_max_chans=cfg["num_max_chans"])
     if cudev >= 0:
         m_gen.cuda(cudev)
         m_disc.cuda(cudev)
@@ -213,7 +214,8 @@ def train(cfg):
                     epoch*num_batches+1)
 
 #                if global_ct-1 % 10 == 0:
-                print("Alpha: %f" % alpha)
+                if scale_i>0:
+                    print("Alpha: %f" % alpha)
 
             logging.info("Epoch %d: GLoss: %.4f, DLossReal: %.4f, DLossFake: " \
                     "%.4f" % (epoch, g_loss.item(), d_real_loss.item(),
@@ -319,7 +321,7 @@ if __name__ == "__main__":
     parser.add_argument("--momentum", type=float, default=0.9,
             help="Momentum parameter for the SGD optimizer")
     parser.add_argument("--num-epochs", type=int, default=5)
-    parser.add_argument("--final-batch-size", type=int, default=256)
+    parser.add_argument("--final-batch-size", type=int, default=128)
     parser.add_argument("--debug", action="store_true")
 
     # Hardware/OS
